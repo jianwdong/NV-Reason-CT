@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NV-Reason-CT</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f8f9fb; --text: #15181c; --muted: #5b6570;
+    --border: #dce0e5; --accent: #0f766e; --accent-ink: #ffffff; --accent-soft: #e2f3f1;
+    --warn-bg: #fff6e5; --warn-text: #7a4a00; --warn-border: #f3d7a1;
+    --error-bg: #fdecea; --error-text: #a3261a; --user-bubble: #e9eef5;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0f12; --panel: #15191e; --panel-2: #1b2026; --text: #e6e9ed; --muted: #97a1ac;
+      --border: #2a3139; --accent: #2cc5b3; --accent-ink: #04211d; --accent-soft: #10302c;
+      --warn-bg: #2a210f; --warn-text: #f2c46d; --warn-border: #4d3c17;
+      --error-bg: #34140f; --error-text: #ff9b8f; --user-bubble: #1f2731;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header .tag { color: var(--muted); font-size: 12.5px; }
+  .status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px;
+    color: var(--muted); padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; max-width: 55%; }
+  .status span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #c49a1a; flex: none; }
+  .dot.ready { background: #16a34a; } .dot.error { background: #dc2626; } .dot.mock { background: #6366f1; }
+  .dot.loading { animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 16px; padding: 16px 20px; }
+  .col { min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+  .left { overflow-y: auto; padding-right: 4px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card > .hd { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .card > .hd h2 { font-size: 13px; margin: 0; font-weight: 600; }
+  .card > .bd { padding: 12px 14px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12.5px; }
+
+  .drop {
+    border: 2px dashed var(--border); border-radius: var(--radius); background: var(--panel);
+    padding: 22px 16px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop:focus-visible { border-color: var(--accent); outline: none; }
+  .drop.compact { padding: 12px 14px; text-align: left; display: flex; align-items: center; gap: 10px; }
+  .drop.compact .drop-sub, .drop.compact .drop-icon { display: none; }
+  .drop-icon { font-size: 26px; line-height: 1; margin-bottom: 6px; opacity: .7; }
+  .drop-title { font-weight: 600; }
+  .drop-sub { color: var(--muted); font-size: 12.5px; margin: 6px 0 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid var(--border); background: var(--panel-2); border-radius: 8px; padding: 6px 12px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn.danger { color: var(--error-text); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.sm { padding: 3px 9px; font-size: 12.5px; }
+  .drop.compact .btns { margin-left: auto; flex-wrap: nowrap; }
+  .drop.compact .btn { padding: 4px 10px; font-size: 12.5px; }
+
+  body.dragging::after {
+    content: "Drop to load"; position: fixed; inset: 10px; border: 3px dashed var(--accent); border-radius: 16px;
+    background: color-mix(in srgb, var(--bg) 80%, transparent); display: grid; place-items: center;
+    font-size: 22px; font-weight: 650; color: var(--accent); pointer-events: none; z-index: 10;
+  }
+
+  .progress { height: 4px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 10px; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .1s; }
+  .progress.indeterminate > div { width: 30%; animation: slide 1s infinite ease-in-out; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12.5px; }
+  .facts dt { color: var(--muted); } .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .notes { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .notes li { background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--warn-border);
+    border-radius: 8px; padding: 6px 10px; font-size: 12.5px; }
+  .error-box { background: var(--error-bg); color: var(--error-text); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 10px; }
+
+  label.field { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); }
+  label.field input, label.field select, select.input {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; color: var(--text); width: 100%;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; padding: 5px 12px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+  .viewer { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 1; margin-top: 10px; }
+  .viewer canvas { width: 100%; height: 100%; display: block; outline: none; }
+  .viewer .ori { position: absolute; color: #f5d76e; font: 600 12px var(--mono); text-shadow: 0 0 3px #000; pointer-events: none; }
+  .viewer .ori.t { top: 6px; left: 50%; transform: translateX(-50%); }
+  .viewer .ori.b { bottom: 6px; left: 50%; transform: translateX(-50%); }
+  .viewer .ori.l { left: 8px; top: 50%; transform: translateY(-50%); }
+  .viewer .ori.r { right: 8px; top: 50%; transform: translateY(-50%); }
+  .viewer .info { position: absolute; left: 8px; bottom: 6px; color: #ddd; font: 11px var(--mono); text-shadow: 0 0 3px #000; pointer-events: none; }
+  .viewer .busy { position: absolute; inset: 0; display: grid; place-items: center; color: #ddd; background: rgba(0,0,0,.55); font-size: 13px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .chat { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+  .chat > .bd { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 420px; }
+  .empty h3 { color: var(--text); margin: 0 0 6px; font-size: 15px; }
+  .msg { max-width: 92%; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); padding: 8px 12px; border-radius: 12px 12px 2px 12px; white-space: pre-wrap; }
+  .msg.assistant { align-self: stretch; max-width: 100%; }
+  .msg .status-line { color: var(--muted); font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
+  .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  details.reasoning { border-left: 3px solid var(--border); padding: 2px 0 2px 12px; margin: 4px 0 8px; }
+  details.reasoning summary { cursor: pointer; color: var(--muted); font-size: 12.5px; user-select: none; }
+  details.reasoning .body { white-space: pre-wrap; color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .answer { overflow-wrap: anywhere; }
+  .answer h1, .answer h2, .answer h3, .answer h4 { font-size: 14px; margin: 14px 0 4px; }
+  .answer p { margin: 6px 0; }
+  .answer ul, .answer ol { margin: 4px 0; padding-left: 22px; }
+  .answer code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
+  .labels { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  .label { background: var(--accent-soft); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: 12.5px; }
+  .meta { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .divider { text-align: center; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 10px; }
+  .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
+  .composer { border-top: 1px solid var(--border); padding: 10px 14px 12px; display: grid; gap: 8px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border); background: var(--panel-2); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .input-row { display: flex; gap: 8px; align-items: flex-end; }
+  textarea { flex: 1; resize: none; min-height: 42px; max-height: 180px; border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 12px; background: var(--panel-2); color: var(--text); }
+  textarea:focus, select:focus, input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 0; }
+  .opts { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
+  .opts select { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 4px; }
+  .disclaimer { color: var(--muted); font-size: 11.5px; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; padding: 12px 16px; }
+    .left { overflow: visible; }
+    .chat { min-height: 70vh; }
+    header { padding: 10px 16px; flex-wrap: wrap; }
+    .status { max-width: 100%; margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>NV-Reason-CT</h1>
+  <span class="tag">3D CT vision-language model · research and education use only</span>
+  <div class="status" title=""><span class="dot loading" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+</header>
+
+<main>
+  <section class="col left">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Drop or choose CT images">
+      <div class="drop-icon">⬇</div>
+      <div class="drop-title" id="dropTitle">Drop a CT here</div>
+      <div class="drop-sub">DICOM folder or files, a .zip, a NIfTI (.nii/.nii.gz),<br>or a stack of JPEG/PNG axial slices</div>
+      <div class="row btns" style="justify-content:center">
+        <button class="btn" id="pickFiles" type="button">Choose files</button>
+        <button class="btn" id="pickFolder" type="button">Choose folder</button>
+      </div>
+      <input type="file" id="fileInput" multiple hidden>
+      <input type="file" id="folderInput" webkitdirectory multiple hidden>
+    </div>
+    <div id="uploadState" hidden>
+      <div class="small muted" id="uploadText"></div>
+      <div class="progress" id="uploadBar"><div></div></div>
+    </div>
+    <div class="error-box" id="loadError" hidden></div>
+
+    <div class="card" id="caseCard" hidden>
+      <div class="hd"><h2>Volume</h2><span class="small muted" id="caseSource"></span>
+        <button class="btn sm danger" id="clearCase" style="margin-left:auto" type="button">Clear</button></div>
+      <div class="bd">
+        <dl class="facts" id="caseFacts"></dl>
+        <div id="seriesBox" hidden style="margin-top:10px">
+          <label class="field">DICOM series
+            <select id="seriesSelect"></select>
+          </label>
+        </div>
+        <ul class="notes" id="caseNotes"></ul>
+
+        <details id="jpegBox" hidden style="margin-top:10px" open>
+          <summary class="small" style="cursor:pointer;font-weight:600">JPEG/PNG reconstruction settings</summary>
+          <p class="small muted" style="margin:6px 0 8px">Enter the window the images were exported with and the scan geometry. These turn display pixels back into approximate HU.</p>
+          <div class="grid2">
+            <label class="field">Export window
+              <select id="jpegPreset">
+                <option value="40,400">Soft tissue (40 / 400)</option>
+                <option value="-600,1500">Lung (−600 / 1500)</option>
+                <option value="0,2000">Wide (0 / 2000)</option>
+                <option value="50,350">Mediastinum (50 / 350)</option>
+                <option value="400,1800">Bone (400 / 1800)</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <div class="grid2">
+              <label class="field">WL <input id="jpegWl" type="number" step="1" value="40"></label>
+              <label class="field">WW <input id="jpegWw" type="number" step="1" min="1" value="400"></label>
+            </div>
+            <label class="field">Display FOV (mm) <input id="jpegFov" type="number" step="1" min="10" value="350"></label>
+            <label class="field">Slice spacing (mm) <input id="jpegDz" type="number" step="0.1" min="0.1" value="2.5"></label>
+            <label class="field" style="grid-column:1/-1">Slice order (files sorted by name)
+              <select id="jpegOrder">
+                <option value="1">First image is the most superior (head first)</option>
+                <option value="0">First image is the most inferior (feet first)</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:8px"><button class="btn sm primary" id="jpegApply" type="button">Rebuild volume</button></div>
+        </details>
+      </div>
+    </div>
+
+    <div class="card" id="viewerCard" hidden>
+      <div class="hd"><h2>Model input</h2><span class="small muted" id="viewerSub">192³ crop at 2 mm</span></div>
+      <div class="bd">
+        <div class="row" style="justify-content:space-between">
+          <div class="seg" id="regionSeg" role="group" aria-label="Anatomy region">
+            <button type="button" data-region="chest" aria-pressed="true">Chest</button>
+            <button type="button" data-region="abdomen" aria-pressed="false">Abdomen</button>
+          </div>
+          <div class="seg" id="planeSeg" role="group" aria-label="Plane">
+            <button type="button" data-plane="axial" aria-pressed="true">Ax</button>
+            <button type="button" data-plane="coronal" aria-pressed="false">Cor</button>
+            <button type="button" data-plane="sagittal" aria-pressed="false">Sag</button>
+          </div>
+        </div>
+        <div class="viewer">
+          <canvas id="canvas" width="192" height="192" tabindex="0" aria-label="CT slice viewer; scroll or use arrow keys to change slice"></canvas>
+          <span class="ori t" id="oriT">A</span><span class="ori b" id="oriB">P</span>
+          <span class="ori l" id="oriL">R</span><span class="ori r" id="oriR">L</span>
+          <span class="info" id="sliceInfo"></span>
+          <div class="busy" id="viewerBusy" hidden>Cropping…</div>
+        </div>
+        <input type="range" id="slice" min="0" max="191" value="96" aria-label="Slice">
+        <div class="row" style="justify-content:space-between">
+          <div class="seg" id="windowSeg" role="group" aria-label="Display window">
+            <button type="button" data-w="-600,1500" aria-pressed="true">Lung</button>
+            <button type="button" data-w="40,400" aria-pressed="false">Soft tissue</button>
+            <button type="button" data-w="400,1800" aria-pressed="false">Bone</button>
+          </div>
+          <div class="row small">
+            <a class="muted" id="dlVolume" href="#" download>Volume .nii.gz</a>
+            <a class="muted" id="dlCrop" href="#" download>Crop .nii</a>
+          </div>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="card chat">
+      <div class="hd"><h2>Conversation</h2>
+        <button class="btn sm" id="newChat" style="margin-left:auto" type="button">New conversation</button></div>
+      <div class="bd" id="log">
+        <div class="empty" id="emptyState">
+          <h3>Load a CT to begin</h3>
+          <p>Drop images on the left (or anywhere on this page). Then ask for a structured report, a reasoning analysis, or a specific yes/no question.</p>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="chips" id="chips"></div>
+        <div class="input-row">
+          <textarea id="prompt" rows="1" placeholder="Ask about this CT… (Enter to send, Shift+Enter for a new line)"></textarea>
+          <button class="btn primary" id="send" type="button">Send</button>
+          <button class="btn" id="stop" type="button" hidden>Stop</button>
+        </div>
+        <div class="opts">
+          <label><input type="checkbox" id="thinking" checked> Show reasoning</label>
+          <label>Max tokens
+            <select id="maxTokens"><option>512</option><option>1024</option><option selected>2048</option><option>4096</option></select>
+          </label>
+          <span class="disclaimer">Model output can be wrong. Not for clinical diagnosis or treatment decisions; review by a qualified professional is required.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const PROMPTS = {
+    chest: [
+      ["Structured report", "write a structured chest CT report"],
+      ["Reasoning analysis", "full chest CT reasoning analysis"],
+      ["Pleural effusion?", "Is a pleural effusion present in this CT?"],
+    ],
+    abdomen: [
+      ["Structured report", "write a structured abdominal CT report"],
+      ["Reasoning analysis", "full abdominal CT reasoning analysis"],
+      ["Liver lesion?", "Is there a focal liver lesion in this CT?"],
+    ],
+  };
+  const ORIENT = { axial: ["A", "P", "R", "L"], coronal: ["S", "I", "R", "L"], sagittal: ["S", "I", "A", "P"] };
+
+  const state = {
+    status: null, caseData: null, region: "chest", plane: "axial",
+    crop: null, shape: null, index: { axial: 0, coronal: 0, sagittal: 0 },
+    wl: -600, ww: 1500, history: [], controller: null, cropToken: 0,
+  };
+
+  // ---------------------------------------------------------------- status
+  async function pollStatus() {
+    try {
+      const s = await (await fetch("/api/status")).json();
+      state.status = s;
+      const dot = $("statusDot");
+      dot.className = "dot " + (s.state === "ready" ? (s.mock ? "mock" : "ready") : s.state);
+      $("statusText").textContent = s.state === "ready" ? (s.mock ? "Mock mode · " + s.device : "Ready · " + s.device) : s.detail;
+      dot.parentElement.title = s.detail;
+      updateSendState();
+      setTimeout(pollStatus, s.state === "loading" ? 2000 : 15000);
+    } catch {
+      $("statusDot").className = "dot error";
+      $("statusText").textContent = "Server unreachable";
+      setTimeout(pollStatus, 4000);
+    }
+  }
+
+  // ---------------------------------------------------------------- collecting files
+  const skip = (path) => path.split("/").some((p) => p.startsWith(".") || p === "__MACOSX");
+
+  async function walk(entry, prefix, out) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      out.push({ file, path: prefix + entry.name });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const child of batch) await walk(child, prefix + entry.name + "/", out);
+      }
+    }
+  }
+
+  async function filesFromDrop(dt) {
+    // Entries must be taken synchronously, before the first await.
+    const entries = [...dt.items].filter((i) => i.kind === "file").map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry());
+    if (entries.length && entries.every(Boolean)) {
+      const out = [];
+      for (const e of entries) await walk(e, "", out);
+      return out;
+    }
+    return [...dt.files].map((f) => ({ file: f, path: f.name }));
+  }
+
+  // ---------------------------------------------------------------- upload
+  function jpegOptions() {
+    return {
+      window_center: Number($("jpegWl").value), window_width: Number($("jpegWw").value),
+      fov_mm: Number($("jpegFov").value), slice_spacing_mm: Number($("jpegDz").value),
+      first_is_superior: $("jpegOrder").value === "1",
+    };
+  }
+
+  function errorText(xhrOrBody) {
+    try { const d = JSON.parse(xhrOrBody).detail; return typeof d === "string" ? d : JSON.stringify(d); }
+    catch { return xhrOrBody || "Request failed"; }
+  }
+
+  function showLoadError(msg) { $("loadError").textContent = msg; $("loadError").hidden = !msg; }
+
+  function setUpload(text, fraction) {
+    $("uploadState").hidden = text == null;
+    if (text == null) return;
+    $("uploadText").textContent = text;
+    const bar = $("uploadBar");
+    bar.classList.toggle("indeterminate", fraction == null);
+    bar.firstElementChild.style.width = fraction == null ? "" : Math.round(fraction * 100) + "%";
+  }
+
+  async function loadFiles(items) {
+    items = items.filter((i) => !skip(i.path));
+    if (!items.length) { showLoadError("No files found in what was dropped."); return; }
+    showLoadError("");
+    const total = items.reduce((n, i) => n + i.file.size, 0);
+    const fd = new FormData();
+    fd.append("options", JSON.stringify({ jpeg: jpegOptions() }));
+    for (const { file, path } of items) fd.append("files", file, path);
+    setUpload(`Uploading ${items.length} file${items.length > 1 ? "s" : ""} (${(total / 1e6).toFixed(1)} MB)…`, 0);
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/cases");
+        xhr.upload.onprogress = (e) => e.lengthComputable && setUpload($("uploadText").textContent, e.loaded / e.total);
+        xhr.upload.onload = () => setUpload("Converting to a CT volume…", null);
+        xhr.onload = () => (xhr.status < 300 ? resolve(JSON.parse(xhr.responseText)) : reject(new Error(errorText(xhr.responseText))));
+        xhr.onerror = () => reject(new Error("Upload failed; is the server still running?"));
+        xhr.send(fd);
+      });
+      if (state.caseData) fetch(`/api/cases/${state.caseData.id}`, { method: "DELETE" });
+      setUpload(null);
+      setCase(data, "New volume loaded");
+    } catch (err) {
+      setUpload(null);
+      showLoadError(err.message);
+    }
+  }
+
+  async function reconvert(body) {
+    showLoadError("");
+    setUpload("Rebuilding volume…", null);
+    try {
+      const res = await fetch(`/api/cases/${state.caseData.id}/convert`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(errorText(text));
+      setUpload(null);
+      setCase(JSON.parse(text), "Volume rebuilt");
+    } catch (err) {
+      setUpload(null);
+      showLoadError(err.message);
+    }
+  }
+
+  // ---------------------------------------------------------------- case panel
+  function setCase(data, reason) {
+    state.caseData = data;
+    const v = data.volume;
+    $("drop").classList.add("compact");
+    $("dropTitle").textContent = "Drop another CT to replace";
+    $("caseCard").hidden = false;
+    $("viewerCard").hidden = false;
+    $("caseSource").textContent = { dicom: "DICOM", jpeg: "JPEG/PNG stack", nifti: "NIfTI" }[v.source];
+    const facts = [
+      ["Source", v.description || "—"],
+      ["Matrix", v.shape.join(" × ")],
+      ["Voxel (mm)", v.spacing.map((s) => s.toFixed(2)).join(" × ")],
+      ["Extent (mm)", v.extent_mm.map((s) => Math.round(s)).join(" × ")],
+    ];
+    $("caseFacts").innerHTML = facts.map(([k, val]) => `<dt>${k}</dt><dd>${escapeHtml(String(val))}</dd>`).join("");
+    $("caseNotes").innerHTML = v.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("");
+
+    $("seriesBox").hidden = data.series.length < 2;
+    $("seriesSelect").innerHTML = data.series
+      .map((s) => `<option value="${escapeHtml(s.uid)}" ${s.uid === data.series_uid ? "selected" : ""}>${escapeHtml(`${s.description} — ${s.modality}, ${s.images} images, ${s.size}`)}</option>`)
+      .join("");
+
+    $("jpegBox").hidden = v.source !== "jpeg";
+    if (data.jpeg) {
+      $("jpegWl").value = data.jpeg.window_center; $("jpegWw").value = data.jpeg.window_width;
+      $("jpegFov").value = data.jpeg.fov_mm; $("jpegDz").value = data.jpeg.slice_spacing_mm;
+      $("jpegOrder").value = data.jpeg.first_is_superior ? "1" : "0";
+      syncPreset();
+    }
+    $("dlVolume").href = `/api/cases/${data.id}/download/volume`;
+    startConversation(`${reason} (${$("caseSource").textContent})`);
+    loadCrop();
+  }
+
+  function clearCase() {
+    if (state.caseData) fetch(`/api/cases/${state.caseData.id}`, { method: "DELETE" });
+    state.caseData = null; state.crop = null; state.history = [];
+    $("caseCard").hidden = true; $("viewerCard").hidden = true;
+    $("drop").classList.remove("compact"); $("dropTitle").textContent = "Drop a CT here";
+    $("log").innerHTML = "";
+    setEmptyState("Load a CT to begin", "Drop images on the left (or anywhere on this page). Then ask for a structured report, a reasoning analysis, or a specific yes/no question.");
+    showLoadError(""); updateSendState();
+  }
+
+  function syncPreset() {
+    const key = `${$("jpegWl").value},${$("jpegWw").value}`;
+    const opt = [...$("jpegPreset").options].find((o) => o.value === key);
+    $("jpegPreset").value = opt ? key : "custom";
+  }
+
+  // ---------------------------------------------------------------- viewer
+  async function loadCrop() {
+    const token = ++state.cropToken;
+    $("viewerBusy").hidden = false;
+    $("viewerBusy").textContent = `Cropping ${state.region} with the model's preprocessing…`;
+    $("viewerSub").textContent = `${state.region} crop · 2 mm`;
+    try {
+      const res = await fetch(`/api/cases/${state.caseData.id}/crop/${state.region}`);
+      if (!res.ok) throw new Error(errorText(await res.text()));
+      const shape = res.headers.get("X-Shape").split(",").map(Number);
+      const buf = await res.arrayBuffer();
+      if (token !== state.cropToken) return;
+      state.crop = new Int16Array(buf);
+      state.shape = shape; // [Z, Y, X]
+      state.index = { axial: Math.floor(shape[0] / 2), coronal: Math.floor(shape[1] / 2), sagittal: Math.floor(shape[2] / 2) };
+      $("dlCrop").href = `/api/cases/${state.caseData.id}/download/${state.region}`;
+      $("viewerBusy").hidden = true;
+      render();
+    } catch (err) {
+      if (token !== state.cropToken) return;
+      $("viewerBusy").textContent = err.message;
+    }
+    updateSendState();
+  }
+
+  function planeDims() {
+    const [Z, Y, X] = state.shape;
+    return { axial: [X, Y, Z], coronal: [X, Z, Y], sagittal: [Y, Z, X] }[state.plane]; // width, height, depth
+  }
+
+  function render() {
+    if (!state.crop) return;
+    const [Z, Y, X] = state.shape;
+    const [w, h, depth] = planeDims();
+    const canvas = $("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(w, h);
+    const k = Math.min(state.index[state.plane], depth - 1);
+    const lo = state.wl - state.ww / 2, scale = 255 / state.ww, d = state.crop, px = img.data;
+    for (let r = 0; r < h; r++) {
+      for (let c = 0; c < w; c++) {
+        let i;
+        if (state.plane === "axial") i = k * Y * X + r * X + c;
+        else if (state.plane === "coronal") i = (Z - 1 - r) * Y * X + k * X + c;
+        else i = (Z - 1 - r) * Y * X + c * X + k;
+        let v = (d[i] - lo) * scale;
+        v = v < 0 ? 0 : v > 255 ? 255 : v;
+        const o = (r * w + c) * 4;
+        px[o] = px[o + 1] = px[o + 2] = v; px[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const slider = $("slice");
+    slider.max = depth - 1; slider.value = k;
+    const [t, b, l, rr] = ORIENT[state.plane];
+    $("oriT").textContent = t; $("oriB").textContent = b; $("oriL").textContent = l; $("oriR").textContent = rr;
+    $("sliceInfo").textContent = `${state.plane} ${k + 1}/${depth} · W ${state.ww} L ${state.wl}`;
+  }
+
+  function step(delta) {
+    if (!state.crop) return;
+    const depth = planeDims()[2];
+    state.index[state.plane] = Math.max(0, Math.min(depth - 1, state.index[state.plane] + delta));
+    render();
+  }
+
+  function setPressed(seg, attr, value) {
+    for (const b of $(seg).querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
+  }
+
+  // ---------------------------------------------------------------- chat
+  const emptyState = $("emptyState");
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+
+  function inline(s) {
+    return s
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[\s(])_([^_]+)_(?=[\s).,:;!?]|$)/g, "$1<em>$2</em>");
+  }
+
+  function markdown(src) {
+    // The model closes reports with a machine-readable <answer>label, label</answer> list.
+    let labels = "";
+    src = src.replace(/<answer>([\s\S]*?)(<\/answer>|$)/, (_, body) => {
+      const items = body.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+      labels = items.length
+        ? `<div class="labels"><span class="muted small">Labels</span>${items.map((i) => `<span class="label">${escapeHtml(i)}</span>`).join("")}</div>`
+        : "";
+      return "";
+    });
+    return markdownBody(src) + labels;
+  }
+
+  function markdownBody(src) {
+    const lines = escapeHtml(src.trim()).split("\n");
+    let html = "", list = null, para = [];
+    const flushPara = () => { if (para.length) { html += `<p>${inline(para.join("<br>"))}</p>`; para = []; } };
+    const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      let m;
+      if (!line.trim()) { flushPara(); closeList(); continue; }
+      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { flushPara(); closeList(); html += `<h4>${inline(m[2])}</h4>`; continue; }
+      if ((m = line.match(/^\s*[-*•]\s+(.*)$/)) || (m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+        flushPara();
+        const type = /^\s*\d/.test(line) ? "ol" : "ul";
+        if (list !== type) { closeList(); html += `<${type}>`; list = type; }
+        html += `<li>${inline(m[1])}</li>`;
+        continue;
+      }
+      closeList();
+      para.push(line);
+    }
+    flushPara(); closeList();
+    return html;
+  }
+
+  function splitThinking(text, thinking) {
+    if (!thinking) return { reasoning: "", answer: text, done: true };
+    const body = text.replace(/^\s*<think>\s*/, "");
+    const end = body.indexOf("</think>");
+    if (end < 0) return { reasoning: body, answer: "", done: false };
+    return { reasoning: body.slice(0, end).trim(), answer: body.slice(end + 8).trim(), done: true };
+  }
+
+  function addDivider(text) {
+    emptyState.remove();
+    const el = document.createElement("div");
+    el.className = "divider"; el.textContent = text;
+    $("log").append(el);
+  }
+
+  function setEmptyState(title, body) {
+    emptyState.querySelector("h3").textContent = title;
+    emptyState.querySelector("p").textContent = body;
+    if (!emptyState.isConnected) $("log").append(emptyState);
+  }
+
+  function startConversation(reason) {
+    if (state.controller) state.controller.abort();
+    state.history = [];
+    if ($("log").querySelector(".msg")) addDivider(reason + " · new conversation");
+    else setEmptyState("Volume loaded", "Check the crop on the left, then pick a prompt below or ask your own question.");
+    renderChips();
+    updateSendState();
+  }
+
+  function renderChips() {
+    $("chips").innerHTML = "";
+    for (const [label, text] of PROMPTS[state.region]) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = label; b.title = text;
+      b.onclick = () => { $("prompt").value = text; autosize(); $("prompt").focus(); };
+      $("chips").append(b);
+    }
+  }
+
+  function updateSendState() {
+    const ready = state.status && state.status.state === "ready" && state.caseData && state.crop;
+    const busy = !!state.controller;
+    $("send").disabled = !ready || busy;
+    $("send").hidden = busy; $("stop").hidden = !busy;
+    $("send").title = !state.caseData ? "Load a CT first" : !ready ? "Waiting for the model" : "";
+  }
+
+  function autosize() {
+    const t = $("prompt");
+    t.style.height = "auto";
+    t.style.height = Math.min(t.scrollHeight + 2, 180) + "px";
+  }
+
+  async function send() {
+    const prompt = $("prompt").value.trim();
+    if (!prompt || $("send").disabled) return;
+    $("prompt").value = ""; autosize();
+    emptyState.remove();
+    const thinking = $("thinking").checked;
+
+    const user = document.createElement("div");
+    user.className = "msg user"; user.textContent = prompt;
+    const bot = document.createElement("div");
+    bot.className = "msg assistant";
+    bot.innerHTML = `<div class="status-line"><span class="spinner"></span><span class="st">Starting…</span><span class="clock"></span></div>
+      <details class="reasoning" open hidden><summary>Reasoning</summary><div class="body"></div></details>
+      <div class="answer"></div><div class="meta" hidden></div>`;
+    $("log").append(user, bot);
+    const scroll = () => { const log = $("log"); if (log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = log.scrollHeight; };
+    $("log").scrollTop = $("log").scrollHeight;
+
+    const els = {
+      status: bot.querySelector(".status-line"), st: bot.querySelector(".st"), clock: bot.querySelector(".clock"),
+      details: bot.querySelector("details"), reasoning: bot.querySelector("details .body"),
+      answer: bot.querySelector(".answer"), meta: bot.querySelector(".meta"),
+    };
+    const started = performance.now();
+    const timer = setInterval(() => {
+      const s = Math.round((performance.now() - started) / 1000);
+      els.clock.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    }, 500);
+
+    const controller = new AbortController();
+    state.controller = controller; updateSendState();
+    let text = "", failed = null, finished = null;
+    const history = state.history.slice();
+
+    const paint = () => {
+      const parts = splitThinking(text, thinking);
+      if (parts.reasoning) { els.details.hidden = false; els.reasoning.textContent = parts.reasoning; }
+      if (parts.done && els.details.open && parts.answer) els.details.open = false;
+      els.answer.innerHTML = markdown(parts.answer);
+      scroll();
+      return parts;
+    };
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
+        body: JSON.stringify({
+          case_id: state.caseData.id, region: state.region, prompt, history, thinking,
+          max_new_tokens: Number($("maxTokens").value),
+        }),
+      });
+      if (!res.ok) throw new Error(errorText(await res.text()));
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let cut;
+        while ((cut = buf.indexOf("\n\n")) >= 0) {
+          const line = buf.slice(0, cut); buf = buf.slice(cut + 2);
+          if (!line.startsWith("data: ")) continue;
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === "status") els.st.textContent = ev.message;
+          else if (ev.type === "token") {
+            text += ev.text;
+            els.st.textContent = splitThinking(text, thinking).done ? "Answering…" : "Reasoning…";
+            paint();
+          } else if (ev.type === "error") failed = ev.message;
+          else if (ev.type === "done") finished = ev;
+        }
+      }
+    } catch (err) {
+      failed = err.name === "AbortError" ? "stopped" : err.message;
+    }
+    clearInterval(timer);
+    state.controller = null; updateSendState();
+    els.status.remove();
+
+    const parts = paint();
+    const answer = parts.answer || (thinking && !parts.done ? "" : text.trim());
+    if (failed && failed !== "stopped") {
+      const e = document.createElement("div"); e.className = "error-box"; e.textContent = failed; bot.append(e);
+    }
+    const secs = ((performance.now() - started) / 1000).toFixed(0);
+    els.meta.hidden = false;
+    els.meta.innerHTML = `<span>${failed === "stopped" ? "Stopped" : failed ? "Failed" : "Done"} · ${secs}s</span>`;
+    if (answer) {
+      const copy = document.createElement("button");
+      copy.className = "btn sm"; copy.type = "button"; copy.textContent = "Copy";
+      copy.onclick = async () => { await navigator.clipboard.writeText(answer); copy.textContent = "Copied"; setTimeout(() => (copy.textContent = "Copy"), 1200); };
+      els.meta.append(copy);
+    }
+    if (!failed && answer) {
+      state.history.push({ role: "user", content: prompt }, { role: "assistant", content: answer });
+    }
+    if (!answer && !parts.reasoning && !failed) els.answer.innerHTML = `<p class="muted">(empty response)</p>`;
+  }
+
+  // ---------------------------------------------------------------- wiring
+  $("pickFiles").onclick = (e) => { e.stopPropagation(); $("fileInput").click(); };
+  $("pickFolder").onclick = (e) => { e.stopPropagation(); $("folderInput").click(); };
+  $("drop").onclick = () => $("fileInput").click();
+  $("drop").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } };
+  $("fileInput").onchange = (e) => { loadFiles([...e.target.files].map((f) => ({ file: f, path: f.name }))); e.target.value = ""; };
+  $("folderInput").onchange = (e) => { loadFiles([...e.target.files].map((f) => ({ file: f, path: f.webkitRelativePath || f.name }))); e.target.value = ""; };
+
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { if ([...e.dataTransfer.types].includes("Files")) { dragDepth++; document.body.classList.add("dragging"); } });
+  window.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove("dragging"); });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", async (e) => {
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+    if (!e.dataTransfer || !e.dataTransfer.items.length) return;
+    loadFiles(await filesFromDrop(e.dataTransfer));
+  });
+
+  $("clearCase").onclick = clearCase;
+  $("seriesSelect").onchange = (e) => reconvert({ series_uid: e.target.value });
+  $("jpegPreset").onchange = (e) => {
+    if (e.target.value === "custom") return;
+    const [wl, ww] = e.target.value.split(",");
+    $("jpegWl").value = wl; $("jpegWw").value = ww;
+  };
+  $("jpegWl").oninput = $("jpegWw").oninput = syncPreset;
+  $("jpegApply").onclick = () => reconvert({ jpeg: jpegOptions() });
+
+  $("regionSeg").onclick = (e) => {
+    const r = e.target.dataset && e.target.dataset.region;
+    if (!r || r === state.region) return;
+    state.region = r; setPressed("regionSeg", "region", r);
+    const w = r === "chest" ? "-600,1500" : "40,400";
+    [state.wl, state.ww] = w.split(",").map(Number); setPressed("windowSeg", "w", w);
+    if (state.caseData) { startConversation(`Region changed to ${r}`); loadCrop(); } else renderChips();
+  };
+  $("planeSeg").onclick = (e) => {
+    const p = e.target.dataset && e.target.dataset.plane;
+    if (!p) return;
+    state.plane = p; setPressed("planeSeg", "plane", p); render();
+  };
+  $("windowSeg").onclick = (e) => {
+    const w = e.target.dataset && e.target.dataset.w;
+    if (!w) return;
+    [state.wl, state.ww] = w.split(",").map(Number); setPressed("windowSeg", "w", w); render();
+  };
+  $("slice").oninput = (e) => { state.index[state.plane] = Number(e.target.value); render(); };
+  $("canvas").addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? -1 : 1); }, { passive: false });
+  $("canvas").onkeydown = (e) => {
+    const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }[e.key];
+    if (d) { e.preventDefault(); step(d); }
+  };
+
+  $("send").onclick = send;
+  $("stop").onclick = () => state.controller && state.controller.abort();
+  $("newChat").onclick = () => { if (state.history.length) startConversation("Cleared"); };
+  $("prompt").addEventListener("input", autosize);
+  $("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  });
+
+  renderChips();
+  updateSendState();
+  pollStatus();
+})();
+</script>
+</body>
+</html>

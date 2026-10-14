@@ -1,0 +1,10 @@
+# Web UI extras; install together with the model requirements:
+#   pip install -r requirements.txt -r webapp/requirements.txt
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.18
+pydicom>=3.0
+# Decoders for compressed DICOM (JPEG baseline/lossless, JPEG-LS, JPEG 2000)
+pylibjpeg>=2.0
+pylibjpeg-libjpeg>=2.1
+pylibjpeg-openjpeg>=2.3

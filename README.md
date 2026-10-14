@@ -24,8 +24,24 @@ Face and is intentionally not duplicated here.
 > judgment, diagnosis, or treatment decisions. Model outputs can be incorrect
 > and should be reviewed by qualified medical professionals.
 
+## Drag-and-drop web UI (this fork)
+
+This fork adds [`webapp/`](webapp), a local web page for running the model on
+your own scans. Drop a DICOM folder or `.zip`, a NIfTI volume, or a stack of
+JPEG/PNG slices, check the exact crop the model will read, and get a streamed
+report or answer to your question:
+
+```bash
+pip install -r requirements.txt -r webapp/requirements.txt
+python webapp/server.py            # then open http://127.0.0.1:7860
+```
+
+It runs on an NVIDIA GPU, or more slowly on an Apple Silicon Mac. See
+[`webapp/README.md`](webapp/README.md) for setup, JPEG caveats, and privacy notes.
+
 ## Contents
 
+- [`webapp/`](webapp): drag-and-drop web UI (DICOM, NIfTI, JPEG/PNG) with streamed inference
 - [`inference.py`](inference.py): one-volume command-line inference
 - [`train/vlm_sft_train.py`](train/vlm_sft_train.py): SFT example
 - [`train/vlm_grpo_train.py`](train/vlm_grpo_train.py): GRPO entrypoint
