@@ -105,7 +105,12 @@ that server.
    (W 400 / L 40), **2** for lung (W 1500 / L −600), **3** for liver
    (W 150 / L 30), or **4** for bone (W 1800 / L 400). The keys are ignored
    while you type in a text box. Display windows don't change what the model
-   reads, which is always the full HU range. If the anatomy you care about is
+   reads, which is always the full HU range. To make the image bigger, drag
+   the divider between the image and the conversation (your browser remembers
+   the width; double-click the divider to reset it), or press **F** or click
+   **Expand** to fill the window with the viewer (**Esc** or **F** to return).
+   The image is the 2 mm model input, so enlarging it magnifies 2 mm voxels
+   rather than revealing finer detail. If the anatomy you care about is
    cut off, switch between **Chest** and **Abdomen**. Switching starts a new
    conversation, because the model input changes.
 3. Use a prompt chip (**Structured report**, **Reasoning analysis**, a sample

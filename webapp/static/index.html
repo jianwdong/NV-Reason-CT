@@ -45,7 +45,11 @@
   .dot.loading { animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity: .35; } }
 
-  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 16px; padding: 16px 20px; }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--left-width, 440px) 12px minmax(0, 1fr); gap: 0 4px; padding: 16px 20px; }
+  .splitter { position: relative; cursor: col-resize; touch-action: none; outline: none; }
+  .splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; width: 2px; border-radius: 2px; background: var(--border); transition: background .15s; }
+  .splitter:hover::after, .splitter:focus-visible::after, body.resizing .splitter::after { background: var(--accent); }
+  body.resizing { cursor: col-resize; user-select: none; }
   .col { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .left { overflow-y: auto; padding-right: 4px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -107,7 +111,15 @@
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .seg kbd { font: 10px var(--mono); opacity: .65; margin-left: 4px; }
 
-  .viewer { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 1; margin-top: 10px; }
+  .viewer { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 1; margin: 10px auto 0;
+    width: min(100%, calc(100vh - 210px)); min-width: min(100%, 280px); }
+  .hd kbd, .btn kbd { font: 10px var(--mono); opacity: .65; margin-left: 4px; }
+  /* Expanded: the viewer card fills the window; controls keep the image's width. */
+  body.viewer-expanded { overflow: hidden; }
+  body.viewer-expanded #viewerCard { position: fixed; inset: 0; z-index: 30; border: 0; border-radius: 0; overflow: auto; }
+  body.viewer-expanded #viewerCard > .bd { width: min(100%, calc(100vh - 150px)); margin: 0 auto; }
+  body.viewer-expanded #viewerCard .viewer { width: 100%; }
+  body.viewer-expanded #viewerHint { display: none; }
   .viewer canvas { width: 100%; height: 100%; display: block; outline: none; }
   .viewer .ori { position: absolute; color: #f5d76e; font: 600 12px var(--mono); text-shadow: 0 0 3px #000; pointer-events: none; }
   .viewer .ori.t { top: 6px; left: 50%; transform: translateX(-50%); }
@@ -158,7 +170,8 @@
   @media (max-width: 900px) {
     /* Stack the columns and let the page grow and scroll instead of squeezing both into one screen. */
     html, body { height: auto; }
-    main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; }
+    main { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 12px 16px; }
+    .splitter { display: none; }
     .left { overflow: visible; padding-right: 0; }
     .chat { min-height: 70vh; }
     .drop.compact { flex-wrap: wrap; }
@@ -241,7 +254,8 @@
     </div>
 
     <div class="card" id="viewerCard" hidden>
-      <div class="hd"><h2>Model input</h2><span class="small muted" id="viewerSub">192³ crop at 2 mm</span></div>
+      <div class="hd"><h2>Model input</h2><span class="small muted" id="viewerSub">192³ crop at 2 mm</span>
+        <button class="btn sm" id="expandViewer" type="button" style="margin-left:auto" title="Fill the window with the viewer (F); Esc to return">Expand<kbd>F</kbd></button></div>
       <div class="bd">
         <div class="row" style="justify-content:space-between">
           <div class="seg" id="regionSeg" role="group" aria-label="Anatomy region">
@@ -274,10 +288,13 @@
             <a class="muted" id="dlCrop" href="#" download>Crop .nii</a>
           </div>
         </div>
-        <p class="small muted" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice.</p>
+        <p class="small muted" id="viewerHint" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice. Drag the divider to resize, or press F to expand.</p>
       </div>
     </div>
   </section>
+
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize image and conversation panels"
+       tabindex="0" title="Drag to resize · double-click to reset"></div>
 
   <section class="col">
     <div class="card chat">
@@ -823,15 +840,66 @@
     const b = e.target.closest("button");
     if (b) setWindow(b.dataset.w);
   };
-  // Keys 1-4 pick a display window, except while typing in a text field.
+  // Keys 1-4 pick a display window and F expands the viewer, except while typing in a text field.
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if (e.key === "Escape" && document.body.classList.contains("viewer-expanded")) { setExpanded(false); return; }
     if (e.target.closest("textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox])")) return;
+    if ((e.key === "f" || e.key === "F") && state.crop) { e.preventDefault(); setExpanded(!document.body.classList.contains("viewer-expanded")); return; }
     const b = $("windowSeg").querySelector(`button[data-key="${e.key}"]`);
     if (!b || !state.crop) return;
     e.preventDefault();
     setWindow(b.dataset.w);
   });
+  function setExpanded(on) {
+    document.body.classList.toggle("viewer-expanded", on);
+    $("expandViewer").firstChild.textContent = on ? "Exit" : "Expand";
+    $("expandViewer").title = on ? "Return to the normal layout (Esc or F)" : "Fill the window with the viewer (F); Esc to return";
+    if (on) $("canvas").focus();
+  }
+  $("expandViewer").onclick = () => setExpanded(!document.body.classList.contains("viewer-expanded"));
+
+  // Draggable divider between the image and conversation panels; the width is remembered in this browser.
+  const MIN_LEFT = 320, MIN_RIGHT = 360;
+  function setLeftWidth(px, save) {
+    const main = document.querySelector("main"), cs = getComputedStyle(main);
+    // Room for both panels: main's inner width minus the 12 px divider and its two 4 px gaps.
+    const inner = main.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 20;
+    const max = Math.max(MIN_LEFT, inner - MIN_RIGHT);
+    px = Math.round(Math.min(Math.max(px, MIN_LEFT), max));
+    document.documentElement.style.setProperty("--left-width", px + "px");
+    if (save) try { localStorage.setItem("nvrct.leftWidth", String(px)); } catch {}
+  }
+  const leftWidth = () => document.querySelector(".left").getBoundingClientRect().width;
+  try { const saved = Number(localStorage.getItem("nvrct.leftWidth")); if (saved) setLeftWidth(saved, false); } catch {}
+  window.addEventListener("resize", () => {
+    if (document.documentElement.style.getPropertyValue("--left-width")) setLeftWidth(leftWidth(), false);
+  });
+  $("splitter").addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const origin = document.querySelector(".left").getBoundingClientRect().left;
+    document.body.classList.add("resizing");
+    const move = (ev) => setLeftWidth(ev.clientX - origin - 6, false);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.classList.remove("resizing");
+      setLeftWidth(leftWidth(), true);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  });
+  $("splitter").ondblclick = () => {
+    document.documentElement.style.removeProperty("--left-width");
+    try { localStorage.removeItem("nvrct.leftWidth"); } catch {}
+  };
+  $("splitter").onkeydown = (e) => {
+    const d = { ArrowLeft: -40, ArrowRight: 40 }[e.key];
+    if (d) { e.preventDefault(); setLeftWidth(leftWidth() + d, true); }
+  };
+
   $("slice").oninput = (e) => { state.index[state.plane] = Number(e.target.value); render(); };
   $("canvas").addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? -1 : 1); }, { passive: false });
   $("canvas").onkeydown = (e) => {
