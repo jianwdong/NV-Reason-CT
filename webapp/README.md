@@ -53,6 +53,26 @@ python webapp/server.py --mock                   # no weights: real conversion +
 python webapp/server.py --host 0.0.0.0           # listen on the network (trusted networks only)
 ```
 
+### One-click start on a Mac
+
+Create a conda environment named `nvreasonct` once:
+
+```bash
+conda create -n nvreasonct python=3.11
+conda run -n nvreasonct python -m pip install -r requirements.txt -r webapp/requirements.txt
+```
+
+After that, double-click `webapp/start_mac.command` in Finder. It starts the
+server in a Terminal window, opens the page in your default browser when the
+server is ready, and stops the server when you close that window. To keep it
+handy, drag the file to the right-hand side of the Dock. To use a different
+Python, set `NVRCT_PYTHON`.
+
+Run `server.py` as a script (as above), not from the repository root with
+`python -c` or `python -m`. Otherwise, the repository's `accelerate/` config
+folder shadows the `accelerate` package, and Transformers fails with
+`Invalid version: 'N/A'`.
+
 ### Using a remote GPU server
 
 Run the server on the GPU machine, keep it bound to localhost, and tunnel the
