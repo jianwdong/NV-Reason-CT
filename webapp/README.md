@@ -50,6 +50,7 @@ Useful flags:
 python webapp/server.py --device cuda:1          # pick a GPU (default: auto)
 python webapp/server.py --model /path/to/ckpt    # local or fine-tuned checkpoint
 python webapp/server.py --mock                   # no weights: real conversion + preview, canned answers
+python webapp/server.py --no-prefix-cache        # re-encode the scan for every question (see below)
 python webapp/server.py --host 0.0.0.0           # listen on the network (trusted networks only)
 ```
 
@@ -143,12 +144,37 @@ drop, and the model-input crop showed at 6 s. Peak memory was about 1.2 GB
 during conversion and 2.4 GB during cropping. Both grow roughly linearly with
 the number of slices.
 
+## Faster follow-up questions
+
+Every prompt about a scan starts with the same ~13,830 tokens: the opening of
+the first message and the 13,824 image tokens. Encoding them is most of the
+wait before the first word of an answer. The server encodes the image part
+once per scan and region and keeps the model's state, so every later question
+on that scan starts from it and reads only the new text. This covers
+follow-ups, new questions after **New conversation**, and switching back to a
+region you already used. The prompt the model sees is exactly the same as
+before; only the work is split at the end of the image. The page shows
+"Reusing the encoded scan" when it applies.
+
+- The last two scan/region combinations are kept, at about 0.5 GB each.
+  **Clear** and rebuilding the volume (switching series or changing the JPEG
+  settings) discard them.
+- Qwen3.5's linear-attention layers need a small patch to continue from a
+  saved state when given several new tokens at once (Transformers 5.6.2 only
+  supports this one token at a time). See `prefix_cache.py`.
+- `python webapp/test_prefix_cache.py` checks that answers from the reused
+  scan match re-encoding the whole prompt. It needs the model and takes a few
+  minutes. If you ever doubt the cache, start the server with
+  `--no-prefix-cache`.
+
 ## Files
 
 - `server.py` — FastAPI server: uploads, conversion, cropping, and streamed generation.
 - `convert.py` — DICOM, JPEG/PNG, and NIfTI conversion to a HU volume.
+- `prefix_cache.py` — reuses the encoded scan across questions.
 - `static/index.html` — the page (plain HTML/CSS/JS, no build step).
 - `test_convert.py` — round-trip tests on a synthetic phantom: `python -m pytest webapp/test_convert.py`.
+- `test_prefix_cache.py` — checks that reusing the encoded scan gives the same answers (needs the model).
 
 ## API
 
