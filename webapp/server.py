@@ -45,7 +45,7 @@ from convert import ConversionError, InputFile, JpegOptions, build_volume, expan
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 REGIONS = ("chest", "abdomen")
-MAX_CASES = 6
+MAX_CASES = 4
 MAX_UPLOAD_FILES = 20000
 
 

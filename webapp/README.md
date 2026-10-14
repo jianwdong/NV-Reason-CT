@@ -89,7 +89,7 @@ that server.
 
 - The page loads no third-party scripts, fonts, or analytics. Uploaded files go
   only to the server you started.
-- Uploads and converted volumes are kept in a temporary folder. The six most
+- Uploads and converted volumes are kept in a temporary folder. The four most
   recent cases are kept, older ones are deleted, and the folder is removed when
   the server exits. **Clear** deletes a case immediately.
 - The converted NIfTI keeps only voxel data and geometry, with no DICOM header
@@ -101,16 +101,42 @@ that server.
 1. Drop files anywhere on the page, or use **Choose files** / **Choose folder**.
 2. Check the **Model input** viewer. It shows the exact 192 × 192 × 192 crop at
    2 mm that the model reads, in axial, coronal, and sagittal planes. Scroll
-   or use the arrow keys to move through slices. If the anatomy you care about
-   is cut off, switch between **Chest** and **Abdomen**. Switching starts a new
+   or use the arrow keys to move through slices. Press **1** for soft tissue
+   (W 400 / L 40), **2** for lung (W 1500 / L −600), **3** for liver
+   (W 150 / L 30), or **4** for bone (W 1800 / L 400). The keys are ignored
+   while you type in a text box. Display windows don't change what the model
+   reads, which is always the full HU range. If the anatomy you care about is
+   cut off, switch between **Chest** and **Abdomen**. Switching starts a new
    conversation, because the model input changes.
 3. Use a prompt chip (**Structured report**, **Reasoning analysis**, a sample
    yes/no question) or type your own. Follow-up questions keep the context of
    the conversation.
 4. Turn off **Show reasoning** for short, direct answers. Use **Stop** to
    cancel a long generation.
-5. Download the converted volume (`.nii.gz`) or the model-input crop (`.nii`)
+5. Download the converted volume or the model-input crop (both `.nii`)
    to inspect them in 3D Slicer, ITK-SNAP, or another viewer.
+
+## Large, full-resolution scans
+
+Drop them as they are. Don't downsample or thin them out first.
+
+- The converted volume keeps the scan's full resolution. The **Volume** panel
+  shows its real matrix and voxel size.
+- The model itself always reads a 192 × 192 × 192 crop at 2 mm (a 38.4 cm
+  cube). The model's own preprocessing does that reduction (bilinear
+  resampling to 2 mm, then the anatomy-aware crop), exactly as in NVIDIA's
+  pipeline. The page does no extra downsizing of its own, so what the model
+  sees is what it was evaluated on.
+- The flip side: detail finer than about 2 mm, such as the edges of a 3 mm
+  nodule, is averaged out before the model sees it. A 0.6 mm reconstruction
+  and a 2 mm reconstruction of the same scan give the model nearly the same
+  input.
+
+Measured on an M2 Max (32 GB) with a 512 × 512 × 1,091-slice series (0.78 ×
+0.78 × 0.625 mm, 573 MB, 1,091 files): the volume was ready 3.6 s after the
+drop, and the model-input crop showed at 6 s. Peak memory was about 1.2 GB
+during conversion and 2.4 GB during cropping. Both grow roughly linearly with
+the number of slices.
 
 ## Files
 

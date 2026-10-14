@@ -46,7 +46,7 @@
   @keyframes pulse { 50% { opacity: .35; } }
 
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 16px; padding: 16px 20px; }
-  .col { min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+  .col { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .left { overflow-y: auto; padding-right: 4px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
   .card > .hd { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
@@ -105,6 +105,7 @@
   .seg button { border: 0; background: transparent; padding: 5px 12px; cursor: pointer; }
   .seg button + button { border-left: 1px solid var(--border); }
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .seg kbd { font: 10px var(--mono); opacity: .65; margin-left: 4px; }
 
   .viewer { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 1; margin-top: 10px; }
   .viewer canvas { width: 100%; height: 100%; display: block; outline: none; }
@@ -113,7 +114,7 @@
   .viewer .ori.b { bottom: 6px; left: 50%; transform: translateX(-50%); }
   .viewer .ori.l { left: 8px; top: 50%; transform: translateY(-50%); }
   .viewer .ori.r { right: 8px; top: 50%; transform: translateY(-50%); }
-  .viewer .info { position: absolute; left: 8px; bottom: 6px; color: #ddd; font: 11px var(--mono); text-shadow: 0 0 3px #000; pointer-events: none; }
+  .slice-info { font: 11.5px var(--mono); color: var(--muted); text-align: center; margin-top: 2px; }
   .viewer .busy { position: absolute; inset: 0; display: grid; place-items: center; color: #ddd; background: rgba(0,0,0,.55); font-size: 13px; }
   input[type=range] { width: 100%; accent-color: var(--accent); }
 
@@ -141,12 +142,12 @@
   .divider { text-align: center; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 10px; }
   .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 
-  .composer { border-top: 1px solid var(--border); padding: 10px 14px 12px; display: grid; gap: 8px; }
+  .composer { border-top: 1px solid var(--border); padding: 10px 14px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { border: 1px solid var(--border); background: var(--panel-2); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; }
   .chip:hover { border-color: var(--accent); color: var(--accent); }
   .input-row { display: flex; gap: 8px; align-items: flex-end; }
-  textarea { flex: 1; resize: none; min-height: 42px; max-height: 180px; border: 1px solid var(--border); border-radius: 10px;
+  textarea { flex: 1; min-width: 0; resize: none; min-height: 42px; max-height: 180px; border: 1px solid var(--border); border-radius: 10px;
     padding: 9px 12px; background: var(--panel-2); color: var(--text); }
   textarea:focus, select:focus, input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 0; }
   .opts { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
@@ -155,9 +156,15 @@
   [hidden] { display: none !important; }
 
   @media (max-width: 900px) {
-    main { grid-template-columns: 1fr; padding: 12px 16px; }
-    .left { overflow: visible; }
+    /* Stack the columns and let the page grow and scroll instead of squeezing both into one screen. */
+    html, body { height: auto; }
+    main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; }
+    .left { overflow: visible; padding-right: 0; }
     .chat { min-height: 70vh; }
+    .drop.compact { flex-wrap: wrap; }
+    .drop.compact .btns { margin-left: 0; flex-wrap: wrap; }
+    .seg { max-width: 100%; flex-wrap: wrap; }
+    .seg button { padding: 5px 9px; white-space: nowrap; }
     header { padding: 10px 16px; flex-wrap: wrap; }
     .status { max-width: 100%; margin-left: 0; }
   }
@@ -251,22 +258,23 @@
           <canvas id="canvas" width="192" height="192" tabindex="0" aria-label="CT slice viewer; scroll or use arrow keys to change slice"></canvas>
           <span class="ori t" id="oriT">A</span><span class="ori b" id="oriB">P</span>
           <span class="ori l" id="oriL">R</span><span class="ori r" id="oriR">L</span>
-          <span class="info" id="sliceInfo"></span>
           <div class="busy" id="viewerBusy" hidden>Cropping…</div>
         </div>
         <input type="range" id="slice" min="0" max="191" value="96" aria-label="Slice">
+        <div class="slice-info" id="sliceInfo"></div>
         <div class="row" style="justify-content:space-between">
           <div class="seg" id="windowSeg" role="group" aria-label="Display window">
-            <button type="button" data-w="-600,1500" aria-pressed="true">Lung</button>
-            <button type="button" data-w="40,400" aria-pressed="false">Soft tissue</button>
-            <button type="button" data-w="400,1800" aria-pressed="false">Bone</button>
+            <button type="button" data-w="40,400" data-key="1" aria-pressed="false" title="Soft tissue: W 400 / L 40 (key 1)">Soft tissue<kbd>1</kbd></button>
+            <button type="button" data-w="-600,1500" data-key="2" aria-pressed="true" title="Lung: W 1500 / L −600 (key 2)">Lung<kbd>2</kbd></button>
+            <button type="button" data-w="30,150" data-key="3" aria-pressed="false" title="Liver: W 150 / L 30 (key 3)">Liver<kbd>3</kbd></button>
+            <button type="button" data-w="400,1800" data-key="4" aria-pressed="false" title="Bone: W 1800 / L 400 (key 4)">Bone<kbd>4</kbd></button>
           </div>
           <div class="row small">
-            <a class="muted" id="dlVolume" href="#" download>Volume .nii.gz</a>
+            <a class="muted" id="dlVolume" href="#" download>Volume .nii</a>
             <a class="muted" id="dlCrop" href="#" download>Crop .nii</a>
           </div>
         </div>
-        <p class="small muted" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region.</p>
+        <p class="small muted" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice.</p>
       </div>
     </div>
   </section>
@@ -798,8 +806,7 @@
     const r = e.target.dataset && e.target.dataset.region;
     if (!r || r === state.region) return;
     state.region = r; setPressed("regionSeg", "region", r);
-    const w = r === "chest" ? "-600,1500" : "40,400";
-    [state.wl, state.ww] = w.split(",").map(Number); setPressed("windowSeg", "w", w);
+    setWindow(r === "chest" ? "-600,1500" : "40,400");
     if (state.caseData) { startConversation(`Region changed to ${r}`); loadCrop(); } else renderChips();
   };
   $("planeSeg").onclick = (e) => {
@@ -807,11 +814,24 @@
     if (!p) return;
     state.plane = p; setPressed("planeSeg", "plane", p); render();
   };
+  function setWindow(w) {
+    [state.wl, state.ww] = w.split(",").map(Number);
+    setPressed("windowSeg", "w", w);
+    render();
+  }
   $("windowSeg").onclick = (e) => {
-    const w = e.target.dataset && e.target.dataset.w;
-    if (!w) return;
-    [state.wl, state.ww] = w.split(",").map(Number); setPressed("windowSeg", "w", w); render();
+    const b = e.target.closest("button");
+    if (b) setWindow(b.dataset.w);
   };
+  // Keys 1-4 pick a display window, except while typing in a text field.
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if (e.target.closest("textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox])")) return;
+    const b = $("windowSeg").querySelector(`button[data-key="${e.key}"]`);
+    if (!b || !state.crop) return;
+    e.preventDefault();
+    setWindow(b.dataset.w);
+  });
   $("slice").oninput = (e) => { state.index[state.plane] = Number(e.target.value); render(); };
   $("canvas").addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? -1 : 1); }, { passive: false });
   $("canvas").onkeydown = (e) => {

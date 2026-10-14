@@ -404,15 +404,16 @@ def dicom_to_nifti(series, out_path):
         between = slices[0]["between"] or slices[0]["thickness"] or 1.0
         lps = np.diag([col_spacing, row_spacing, -float(between), 1.0])  # first slice superior
 
-    hu = []
-    for s in slices:
-        px = s["pixels"].astype(np.float32)
+    # Fill one int16 volume slice by slice (NIfTI order: i=column, j=row, k=slice) and
+    # release each slice's pixels as we go, so a thin-slice scan never exists as a
+    # full-size float copy.
+    rows, cols = slices[0]["pixels"].shape
+    vol = np.empty((cols, rows, len(slices)), dtype=np.int16)
+    for k, s in enumerate(slices):
         slope = s["slope"] if s["slope"] is not None else 1.0
         intercept = s["intercept"] if s["intercept"] is not None else 0.0
-        hu.append(px * slope + intercept)
-    # (rows, cols, slices) -> NIfTI (i=column, j=row, k=slice)
-    vol = np.stack(hu, axis=-1).transpose(1, 0, 2)
-    vol = np.clip(np.rint(vol), -32768, 32767).astype(np.int16)
+        hu = s.pop("pixels").astype(np.float32) * slope + intercept
+        vol[:, :, k] = np.clip(np.rint(hu), -32768, 32767).T
 
     ras = np.diag([-1.0, -1.0, 1.0, 1.0]) @ lps
     _save(vol, ras, out_path)
@@ -479,8 +480,11 @@ def images_to_nifti(files, out_path, opts):
             for a in images
         ]
 
-    stack = np.stack(images, axis=-1) * opts.window_width + low  # (rows, cols, slices) in HU
-    vol = np.clip(np.rint(stack.transpose(1, 0, 2)), -32768, 32767).astype(np.int16)
+    vol = np.empty((target[1], target[0], len(images)), dtype=np.int16)  # (cols, rows, slices)
+    for k in range(len(images)):
+        hu = images[k] * opts.window_width + low
+        images[k] = None
+        vol[:, :, k] = np.clip(np.rint(hu), -32768, 32767).T
 
     pixel = opts.fov_mm / float(target[1])
     dz = opts.slice_spacing_mm
@@ -539,13 +543,14 @@ def _save(vol, affine, out_path):
 
 
 def build_volume(files, workdir, *, series_uid=None, jpeg=None):
-    """Convert dropped files into ``workdir/volume.nii.gz``.
+    """Convert dropped files into ``workdir/volume.nii`` (uncompressed: writing and re-reading
+    a thin-slice scan as .nii.gz costs several seconds).
 
     Returns ``(Volume, series_list, chosen_series_uid)``; the series list is empty and the
     uid is None unless DICOM was found.
     """
     workdir = Path(workdir)
-    out_path = workdir / "volume.nii.gz"
+    out_path = workdir / "volume.nii"
     groups = classify(files)
 
     if groups["dicom"]:
