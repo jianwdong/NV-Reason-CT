@@ -115,8 +115,11 @@ that server.
    cut off, switch between **Chest** and **Abdomen**. Switching starts a new
    conversation, because the model input changes.
 3. Use a prompt chip (**Structured report**, **Reasoning analysis**, a sample
-   yes/no question) or type your own. Follow-up questions keep the context of
-   the conversation.
+   yes/no question) or type your own. Follow-up questions include every
+   earlier exchange shown in the conversation, including stopped or cut-off
+   answers as far as they got. The note under each answer says how many
+   earlier messages the model saw. Switching region, loading another scan,
+   **New conversation**, or reloading the page starts a new conversation.
 4. Turn off **Show reasoning** for short, direct answers. Use **Stop** to
    cancel a long generation.
 5. Download the converted volume or the model-input crop (both `.nii`)
@@ -189,3 +192,10 @@ The page uses a small JSON API, which you can also script against:
 | `GET` | `/api/cases/{id}/download/{volume\|chest\|abdomen}` | Download the converted volume or a crop |
 | `POST` | `/api/generate` | `{"case_id", "region", "prompt", "history", "thinking", "max_new_tokens"}`; Server-Sent Events stream |
 | `DELETE` | `/api/cases/{id}` | Delete a case and its files |
+
+The server does not remember conversations: every `/api/generate` call must
+send the earlier turns in `history`, oldest first, as
+`[{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]`.
+For assistant turns, send the answer text. Any reasoning before `</think>` is
+dropped by the model's chat template for earlier turns anyway. A call with an
+empty `history` starts a new conversation about the scan.

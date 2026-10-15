@@ -778,16 +778,21 @@
     }
     const secs = ((performance.now() - started) / 1000).toFixed(0);
     els.meta.hidden = false;
-    els.meta.innerHTML = `<span>${failed === "stopped" ? "Stopped" : failed ? "Failed" : "Done"} · ${secs}s</span>`;
+    const context = history.length
+      ? ` · used ${history.length} earlier message${history.length > 1 ? "s" : ""}`
+      : " · first question in this conversation";
+    els.meta.innerHTML = `<span>${failed === "stopped" ? "Stopped" : failed ? "Failed" : "Done"} · ${secs}s${context}</span>`;
     if (answer) {
       const copy = document.createElement("button");
       copy.className = "btn sm"; copy.type = "button"; copy.textContent = "Copy";
       copy.onclick = async () => { await navigator.clipboard.writeText(answer); copy.textContent = "Copied"; setTimeout(() => (copy.textContent = "Copy"), 1200); };
       els.meta.append(copy);
     }
-    if (!failed && answer) {
-      state.history.push({ role: "user", content: prompt }, { role: "assistant", content: answer });
-    }
+    // Keep every exchange that is on screen, including stopped, failed or cut-off ones, so a
+    // follow-up has the same context the reader sees. Partial answers are kept as shown; an
+    // exchange with no answer keeps just the question.
+    state.history.push({ role: "user", content: prompt });
+    if (answer) state.history.push({ role: "assistant", content: answer });
     if (!answer && !parts.reasoning && !failed) els.answer.innerHTML = `<p class="muted">(empty response)</p>`;
   }
 
