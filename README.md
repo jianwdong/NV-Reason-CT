@@ -25,8 +25,8 @@ researcher can use without writing any code.
   Keys **1–4** switch between soft tissue, lung, liver and bone windows, and
   **F** enlarges the image.
 - **Answers questions.** Ask for a structured report, a reasoning walk-through
-  or a yes/no question, then follow up. After the first question on a scan,
-  answers start in about a second.
+  or a yes/no question, then follow up. The model is NVIDIA's original,
+  unmodified, and it reads the whole scan again for every question.
 - **Keeps scans private.** Everything runs on the computer you start it on.
   Nothing is uploaded.
 
@@ -37,9 +37,8 @@ researcher can use without writing any code.
   not been tested.
 - About 15 GB of free disk space. The AI model alone is 10.6 GB and downloads
   the first time you start the reader.
-- A little patience. On the M2 Max, the reader takes 30–60 seconds to read a
-  new scan before its first answer. After that, answers start within a
-  second, and a full report takes about 40 seconds.
+- Patience. On the M2 Max, each answer starts after 30–60 seconds while the
+  model reads the scan, and a full report takes one to two minutes.
 
 ## Set it up on a Mac (one time)
 

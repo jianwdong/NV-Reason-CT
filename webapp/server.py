@@ -41,7 +41,6 @@ from transformers import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from convert import ConversionError, InputFile, JpegOptions, build_volume, expand_zips  # noqa: E402
-from prefix_cache import PrefixCache  # noqa: E402
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -67,12 +66,10 @@ def pick_device(requested):
 class Engine:
     """Loads the processor and model in the background and runs one generation at a time."""
 
-    def __init__(self, model_id, device, mock, reuse_prefix=True):
+    def __init__(self, model_id, device, mock):
         self.model_id = model_id
         self.device = device
         self.mock = mock
-        self.reuse_prefix = reuse_prefix
-        self.prefixes = None  # encoded scans, reused across questions (see prefix_cache.py)
         self.state = "loading"
         self.detail = "Loading processor"
         self.processor = None
@@ -94,12 +91,6 @@ class Engine:
                 attn_implementation="sdpa",
             )
             self.model = model.eval().to(self.device)
-            if self.reuse_prefix:
-                try:
-                    vision_end = self.processor.tokenizer.convert_tokens_to_ids("<|vision_end|>")
-                    self.prefixes = PrefixCache(self.model, vision_end)
-                except Exception as exc:
-                    print(f"Scan reuse disabled ({exc}); every question will re-encode the scan.")
             self.state, self.detail = "ready", f"Model ready on {self.device}"
         except Exception as exc:  # surfaced in the UI instead of killing the server
             self.state, self.detail = "error", f"{type(exc).__name__}: {exc}"
@@ -145,7 +136,6 @@ class Case:
         self.jpeg = JpegOptions()
         self.crops: dict[str, np.ndarray] = {}
         self.crop_paths: dict[str, Path] = {}
-        self.version = 0  # bumped on every conversion; part of the encoded-scan cache key
         self.lock = threading.Lock()
 
     def convert(self):
@@ -153,7 +143,6 @@ class Case:
             path.unlink()
         self.crops.clear()
         self.crop_paths.clear()
-        self.version += 1
         self.volume, self.series, self.series_uid = build_volume(
             self.files, self.workdir, series_uid=self.series_uid, jpeg=self.jpeg
         )
@@ -285,8 +274,6 @@ def create_app(engine: Engine, store: CaseStore) -> FastAPI:
     @app.delete("/api/cases/{case_id}")
     def delete_case(case_id: str):
         store.drop(case_id)
-        if engine.prefixes is not None:
-            engine.prefixes.drop(lambda key: key[0] == case_id)
         return {"ok": True}
 
     @app.get("/api/cases/{case_id}/crop/{region}")
@@ -342,8 +329,7 @@ def create_app(engine: Engine, store: CaseStore) -> FastAPI:
         if engine.mock:
             source = mock_stream(prompt, region, thinking, stop)
         else:
-            key = (case.id, region, case.version)
-            source = model_stream(engine, key, crop_path, history, prompt, thinking, max_new_tokens, stop)
+            source = model_stream(engine, crop_path, history, prompt, thinking, max_new_tokens, stop)
 
         async def events():
             started = time.time()
@@ -381,13 +367,8 @@ def sse(payload):
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def model_stream(engine, key, crop_path, history, prompt, thinking, max_new_tokens, stop):
-    """Yield status dicts, then decoded text chunks, from a background generate() call.
-
-    With the prefix cache on, the scan (the image part of the prompt) is encoded once per
-    ``key`` = (case, region, version) and later questions continue from it; the prompt is
-    the same either way.
-    """
+def model_stream(engine, crop_path, history, prompt, thinking, max_new_tokens, stop):
+    """Yield status dicts, then decoded text chunks, from a background generate() call."""
     processor, model = engine.processor, engine.model
     messages = history + [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
     messages[0]["content"].insert(0, {"type": "image"})
@@ -407,19 +388,11 @@ def model_stream(engine, key, crop_path, history, prompt, thinking, max_new_toke
         return
     engine.busy = True
 
-    reuse = engine.prefixes is not None and engine.prefixes.has(key, inputs["input_ids"])
-
     def run():
         try:
             with torch.inference_mode():
-                kwargs = None
-                if engine.prefixes is not None:
-                    try:
-                        kwargs, _ = engine.prefixes.prepare(key, inputs, engine.device)
-                    except Exception as exc:
-                        print(f"Scan reuse failed ({exc}); encoding the full prompt.")
                 model.generate(
-                    **(kwargs or inputs.to(engine.device)),
+                    **inputs.to(engine.device),
                     streamer=streamer,
                     max_new_tokens=max_new_tokens,
                     do_sample=False,
@@ -434,13 +407,11 @@ def model_stream(engine, key, crop_path, history, prompt, thinking, max_new_toke
             engine.gpu_lock.release()
 
     threading.Thread(target=run, daemon=True).start()
-    total = int(inputs["input_ids"].shape[1])
-    if reuse:
-        new = total - engine.prefixes.prefix_length(inputs["input_ids"])
-        message = f"Reusing the encoded scan; reading {new:,} new tokens"
-    else:
-        message = f"Encoding the scan ({total:,} tokens) on {engine.device}; the first token can take a while"
-    yield {"type": "status", "message": message}
+    yield {
+        "type": "status",
+        "message": f"Encoding {int(inputs['input_ids'].shape[1]):,} tokens on {engine.device} "
+                   "(the first token can take a while)",
+    }
     if thinking:
         yield "<think>\n"
     for chunk in streamer:
@@ -481,11 +452,9 @@ def main():
     parser.add_argument("--model", default="nvidia/NV-Reason-CT", help="Hugging Face model ID or local path")
     parser.add_argument("--device", default="auto", help="auto, cuda, cuda:1, mps or cpu")
     parser.add_argument("--mock", action="store_true", help="Skip model weights; stream canned answers")
-    parser.add_argument("--no-prefix-cache", action="store_true",
-                        help="Re-encode the scan for every question instead of reusing it")
     args = parser.parse_args()
 
-    engine = Engine(args.model, pick_device(args.device), args.mock, reuse_prefix=not args.no_prefix_cache)
+    engine = Engine(args.model, pick_device(args.device), args.mock)
     if engine.device == "cpu" and not args.mock:
         print("WARNING: no GPU found; CPU inference of a 4.7B model with 13,824 image tokens is very slow.")
     upload_root = Path(tempfile.mkdtemp(prefix="nvreasonct_"))
