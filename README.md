@@ -22,12 +22,16 @@ researcher can use without writing any code.
   works as a last resort.
 - **Shows you what the AI sees.** Before you ask anything, scroll through the
   exact 38 cm cube the model will read, in axial, coronal and sagittal views.
-  Keys **1–4** switch between soft tissue, lung, liver and bone windows, and
-  **F** enlarges the image.
+  Press **O** to switch to the **original** full-resolution scan, with the
+  model's cube outlined. Keys **1–4** switch between soft tissue, lung, liver
+  and bone windows, and **F** enlarges the image.
 - **Measures.** Hover to read Hounsfield units, draw a **ruler** (R) for
-  distances, or draw an **oval ROI** (E) for mean, SD, min/max and area.
-  These are made on the 2 mm image the model reads, so they are approximate;
-  use your PACS for clinical measurements.
+  distances, or draw an **oval ROI** (E) for mean, SD, min/max and area. On
+  the original scan, measurements use its full resolution; on the 2 mm model
+  input they are approximate. Use your PACS for clinical measurements.
+- **Exports a case summary.** One click saves a single file named after the
+  study, with key images, measurements and the whole conversation. It opens in
+  any browser and prints to PDF.
 - **Answers questions.** Ask for a structured report, a reasoning walk-through
   or a yes/no question, then follow up. The model is NVIDIA's original,
   unmodified, and it reads the whole scan again for every question.
@@ -106,7 +110,8 @@ details, settings, and the programming interface, see
   [original repository](https://github.com/NVIDIA-Medtech/NV-Reason-CT).
   NVIDIA's original README, including its training instructions, is kept in
   [NVIDIA_README.md](NVIDIA_README.md).
-- This project adds the reader in the [`webapp`](webapp) folder.
+- This project adds the reader in the [`webapp`](webapp) folder, released
+  under the MIT License (see [webapp/LICENSE](webapp/LICENSE)).
 - NVIDIA's model and code are licensed under the OpenMDW License 1.1 (see
   [LICENSE](LICENSE)). Third-party packages are listed in
   [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).

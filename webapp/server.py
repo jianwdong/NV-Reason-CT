@@ -136,13 +136,18 @@ class Case:
         self.jpeg = JpegOptions()
         self.crops: dict[str, np.ndarray] = {}
         self.crop_paths: dict[str, Path] = {}
+        self.corners: dict[str, np.ndarray | None] = {}  # world-space corners of each region's crop
+        self._display = None  # (LPS (X, Y, Z) view of volume.nii, spacing, affine), see display_volume()
         self.lock = threading.Lock()
+        self.display_lock = threading.Lock()
 
     def convert(self):
         for path in self.workdir.glob("crop_*.nii"):
             path.unlink()
         self.crops.clear()
         self.crop_paths.clear()
+        self.corners.clear()
+        self._display = None
         self.volume, self.series, self.series_uid = build_volume(
             self.files, self.workdir, series_uid=self.series_uid, jpeg=self.jpeg
         )
@@ -166,8 +171,7 @@ class Case:
         with self.lock:
             if region not in self.crops:
                 loader = engine.image_loader
-                image = loader.load_image(str(self.volume.path), normalize_mode=0, anatomy_region=region)
-                vol = image[0].numpy()
+                vol, self.corners[region] = model_crop(loader, self.volume.path, region)
                 spacing = [float(s) for s in getattr(loader, "pixdim", (2.0, 2.0, 2.0))]
                 affine = np.diag([-spacing[0], -spacing[1], spacing[2], 1.0])
                 path = self.workdir / f"crop_{region}.nii"
@@ -175,6 +179,84 @@ class Case:
                 self.crops[region] = vol
                 self.crop_paths[region] = path
             return self.crops[region], self.crop_paths[region]
+
+
+    def display_volume(self):
+        """The converted scan for viewing: an LPS-ordered (X, Y, Z) view of volume.nii (read
+        from disk on demand), its voxel size in mm and its voxel-to-world affine."""
+        with self.display_lock:
+            if self._display is None:
+                img = nib.load(str(self.volume.path), mmap="r")
+                arr = np.asanyarray(img.dataobj)
+                start = nib.orientations.io_orientation(img.affine)
+                to_lps = nib.orientations.ornt_transform(start, nib.orientations.axcodes2ornt(("L", "P", "S")))
+                data = nib.orientations.apply_orientation(arr, to_lps)  # flips and transposes are views
+                affine = img.affine @ nib.orientations.inv_ornt_aff(to_lps, arr.shape)
+                spacing = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
+                self._display = (data, spacing, affine)
+            return self._display
+
+    def outline(self, region):
+        """Where a region's model crop lies in the original scan, as [z0, z1, y0, y1, x0, x1]
+        in image coordinates (voxel i spans i..i+1), or None if it could not be located."""
+        corners = self.corners.get(region)
+        if corners is None:
+            return None
+        _, _, affine = self.display_volume()
+        vox = (np.linalg.inv(affine) @ np.c_[corners, np.ones(len(corners))].T).T[:, :3] + 0.5
+        lo, hi = vox.min(axis=0), vox.max(axis=0)
+        return [round(float(v), 2) for v in (lo[2], hi[2], lo[1], hi[1], lo[0], hi[0])]
+
+
+def model_crop(loader, path, region):
+    """The model-input crop in HU, (Z, Y, X), and the world-space corners of where it sits.
+
+    Runs the model's own preprocessing one step at a time (the result is identical to
+    load_image) so the resampled, padded volume before the anatomy crop is available. The crop
+    is an exact sub-array of it; finding its offset gives its corners. NVIDIA's crop step does
+    not record its position, so corners are None if the crop cannot be located exactly.
+    """
+    transforms = loader.get_transforms().transforms
+    names = [type(t).__name__ for t in transforms]
+    if "AnatomySpatialCropd" not in names:
+        return loader.load_image(str(path), normalize_mode=0, anatomy_region=region)[0].numpy(), None
+    at = names.index("AnatomySpatialCropd")
+    data = {"image": str(path), "anatomy_region": region}
+    for t in transforms[:at]:
+        data = t(data)
+    padded = data["image"]
+    data = transforms[at](data)
+    cropped = data["image"]
+    for t in transforms[at + 1:]:
+        data = t(data)
+    vol = data["image"].as_subclass(torch.Tensor).contiguous()[0].numpy()
+
+    offset = locate(np.asarray(padded[0]), np.asarray(cropped[0]))
+    if offset is None:
+        return vol, None
+    lo = np.array(offset, dtype=float) - 0.5  # outer edges of the first and last voxels
+    hi = lo + np.array(cropped.shape[1:], dtype=float)
+    corners = np.array([[x, y, z, 1.0] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+    return vol, (np.asarray(padded.affine, dtype=float) @ corners.T).T[:, :3]
+
+
+def locate(padded, crop):
+    """Offset (x, y, z) at which `crop` is an exact sub-array of `padded`, or None."""
+    span = [p - c for p, c in zip(padded.shape, crop.shape)]
+    if min(span) < 0:
+        return None
+    cx, cy = crop.shape[0] // 2, crop.shape[1] // 2
+    probe = crop[cx, cy, :]
+    centred_first = lambda n: sorted(range(n + 1), key=lambda s: abs(s - n / 2))  # the model centres x and y
+    for xs in centred_first(span[0]):
+        for ys in centred_first(span[1]):
+            windows = np.lib.stride_tricks.sliding_window_view(padded[xs + cx, ys + cy, :], crop.shape[2])
+            for zs in np.flatnonzero((windows == probe).all(axis=1)):
+                zs = int(zs)
+                block = padded[xs:xs + crop.shape[0], ys:ys + crop.shape[1], zs:zs + crop.shape[2]]
+                if np.array_equal(block, crop):
+                    return xs, ys, zs
+    return None
 
 
 class CaseStore:
@@ -293,6 +375,41 @@ def create_app(engine: Engine, store: CaseStore) -> FastAPI:
                 "X-Spacing": f"{pixdim[2]},{pixdim[1]},{pixdim[0]}",  # mm, same (Z, Y, X) order as the data
                 "Cache-Control": "no-store",
             },
+        )
+
+    @app.get("/api/cases/{case_id}/original")
+    def original_info(case_id: str):
+        case = store.get(case_id)
+        data, spacing, _ = case.display_volume()
+        x, y, z = data.shape
+        return {
+            "shape": [z, y, x],
+            "spacing": [round(float(spacing[2]), 4), round(float(spacing[1]), 4), round(float(spacing[0]), 4)],
+            "outlines": {region: case.outline(region) for region in list(case.corners)},
+        }
+
+    @app.get("/api/cases/{case_id}/original/{plane}/{k}")
+    def original_slice(case_id: str, plane: str, k: int):
+        case = store.get(case_id)
+        data, _, _ = case.display_volume()  # LPS (X, Y, Z)
+        depth = {"axial": data.shape[2], "coronal": data.shape[1], "sagittal": data.shape[0]}.get(plane)
+        if depth is None or not 0 <= k < depth:
+            raise HTTPException(404, "No such slice.")
+        # Same screen orientation as the crop: rows A->P or S->I, columns R->L or A->P.
+        if plane == "axial":
+            image = data[:, :, k].T
+        elif plane == "coronal":
+            image = data[:, k, :].T[::-1]
+        else:
+            image = data[k, :, :].T[::-1]
+        image = np.asarray(image)
+        if image.dtype != np.int16:
+            image = np.clip(np.rint(image), -32768, 32767)
+        payload = np.ascontiguousarray(image, dtype="<i2").tobytes()
+        return Response(
+            gzip.compress(payload, compresslevel=1),
+            media_type="application/octet-stream",
+            headers={"Content-Encoding": "gzip", "X-Shape": f"{image.shape[0]},{image.shape[1]}", "Cache-Control": "no-store"},
         )
 
     @app.get("/api/cases/{case_id}/download/{kind}")

@@ -53,7 +53,7 @@
   .col { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
   .left { overflow-y: auto; padding-right: 4px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
-  .card > .hd { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .card > .hd { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .card > .hd h2 { font-size: 13px; margin: 0; font-weight: 600; }
   .card > .bd { padding: 12px 14px; }
   .muted { color: var(--muted); }
@@ -120,12 +120,15 @@
   body.viewer-expanded #viewerCard > .bd { width: min(100%, calc(100vh - 150px)); margin: 0 auto; }
   body.viewer-expanded #viewerCard .viewer { width: 100%; }
   body.viewer-expanded #viewerHint { display: none; }
+  .viewer .stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 100%; height: 100%; }
   .viewer canvas { width: 100%; height: 100%; display: block; outline: none; }
   .viewer.measuring canvas { cursor: crosshair; }
   .viewer svg.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .overlay .m { fill: none; stroke: #ffd84a; }
   .overlay .m.preview { stroke-dasharray: 4 3; }
   .overlay .end { fill: #ffd84a; }
+  .overlay .outline { fill: none; stroke: #2cc5b3; stroke-dasharray: 6 4; stroke-width: 1.5; }
+  .overlay text.outline-label { fill: #2cc5b3; }
   .overlay text { fill: #ffd84a; stroke: #000; paint-order: stroke; stroke-linejoin: round; font-family: var(--mono); }
   .measures { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font: 12px var(--mono); }
   .measures li { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
@@ -225,6 +228,9 @@
       <div class="hd"><h2>Volume</h2><span class="small muted" id="caseSource"></span>
         <button class="btn sm danger" id="clearCase" style="margin-left:auto" type="button">Clear</button></div>
       <div class="bd">
+        <label class="field" style="margin-bottom:10px">Study name, used for the exported summary
+          <input id="studyName" type="text" maxlength="120" autocomplete="off" spellcheck="false">
+        </label>
         <dl class="facts" id="caseFacts"></dl>
         <div id="seriesBox" hidden style="margin-top:10px">
           <label class="field">DICOM series
@@ -266,8 +272,12 @@
     </div>
 
     <div class="card" id="viewerCard" hidden>
-      <div class="hd"><h2>Model input</h2><span class="small muted" id="viewerSub">192³ crop at 2 mm</span>
-        <button class="btn sm" id="expandViewer" type="button" style="margin-left:auto" title="Fill the window with the viewer (F); Esc to return">Expand<kbd>F</kbd></button></div>
+      <div class="hd"><h2>Viewer</h2><span class="small muted" id="viewerSub">model input · 2 mm</span>
+        <div class="seg" id="sourceSeg" role="group" aria-label="Image shown" style="margin-left:auto">
+          <button type="button" data-source="crop" aria-pressed="true" title="What the model reads: 2 mm, cropped to the region (O to switch)">Model input</button>
+          <button type="button" data-source="original" aria-pressed="false" title="The full-resolution scan, with the model's crop outlined (O to switch)">Original<kbd>O</kbd></button>
+        </div>
+        <button class="btn sm" id="expandViewer" type="button" title="Fill the window with the viewer (F); Esc to return">Expand<kbd>F</kbd></button></div>
       <div class="bd">
         <div class="row" style="justify-content:space-between">
           <div class="seg" id="regionSeg" role="group" aria-label="Anatomy region">
@@ -281,8 +291,10 @@
           </div>
         </div>
         <div class="viewer">
-          <canvas id="canvas" width="192" height="192" tabindex="0" aria-label="CT slice viewer; scroll or use arrow keys to change slice"></canvas>
-          <svg class="overlay" id="overlay" viewBox="0 0 192 192" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="stage" id="stage">
+            <canvas id="canvas" width="192" height="192" tabindex="0" aria-label="CT slice viewer; scroll or use arrow keys to change slice"></canvas>
+            <svg class="overlay" id="overlay" viewBox="0 0 192 192" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
           <span class="ori t" id="oriT">A</span><span class="ori b" id="oriB">P</span>
           <span class="ori l" id="oriL">R</span><span class="ori r" id="oriR">L</span>
           <div class="busy" id="viewerBusy" hidden>Cropping…</div>
@@ -309,7 +321,7 @@
           <button class="btn sm" id="clearMeasures" type="button" hidden>Clear measurements</button>
         </div>
         <ul class="measures" id="measureList" aria-label="Measurements"></ul>
-        <p class="small muted" id="viewerHint" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice. Drag the divider to resize, or press F to expand. Hover to read HU; R and E draw a ruler or an oval ROI (Delete removes the last one). Measurements are made on this 2 mm image, so treat them as approximate: about ±2 mm, and HU blurred at edges.</p>
+        <p class="small muted" id="viewerHint" style="margin:8px 0 0"><b>Model input</b> is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. <b>Original</b> (O) shows the full-resolution scan with that crop outlined. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice. Drag the divider to resize, or press F to expand. Hover to read HU; R and E draw a ruler or an oval ROI (Delete removes the last one). On the model input, measurements are approximate (about ±2 mm, HU blurred at edges); use Original for full resolution.</p>
       </div>
     </div>
   </section>
@@ -320,7 +332,9 @@
   <section class="col">
     <div class="card chat">
       <div class="hd"><h2>Conversation</h2>
-        <button class="btn sm" id="newChat" style="margin-left:auto" type="button">New conversation</button></div>
+        <button class="btn sm" id="exportCase" style="margin-left:auto" type="button" disabled
+          title="Download the study's images, measurements, questions and answers as one HTML file">Export summary</button>
+        <button class="btn sm" id="newChat" type="button">New conversation</button></div>
       <div class="bd" id="log">
         <div class="empty" id="emptyState">
           <h3>Load a CT to begin</h3>
@@ -365,9 +379,9 @@
 
   const state = {
     status: null, caseData: null, region: "chest", plane: "axial",
-    crop: null, shape: null, index: { axial: 0, coronal: 0, sagittal: 0 },
+    crop: null, source: "crop", views: { crop: null, original: null },
     wl: -600, ww: 1500, history: [], controller: null, cropToken: 0,
-    spacing: [2, 2, 2], tool: null, measures: [], drawing: null, hoverPt: null,
+    tool: null, measures: [], drawing: null, hoverPt: null,
   };
 
   // ---------------------------------------------------------------- status
@@ -517,6 +531,10 @@
       syncPreset();
     }
     $("dlVolume").href = `/api/cases/${data.id}/download/volume`;
+    $("studyName").value = v.study || v.description || "";
+    $("exportCase").disabled = false;
+    state.views.original = null; // a new or rebuilt volume
+    state.measures = [];
     startConversation(`${reason} (${$("caseSource").textContent})`);
     loadCrop();
   }
@@ -525,6 +543,8 @@
     if (state.caseData) fetch(`/api/cases/${state.caseData.id}`, { method: "DELETE" });
     state.caseData = null; state.crop = null; state.history = [];
     state.measures = []; state.drawing = null; renderMeasures();
+    state.views = { crop: null, original: null };
+    $("exportCase").disabled = true;
     $("caseCard").hidden = true; $("viewerCard").hidden = true;
     $("drop").classList.remove("compact"); $("dropTitle").textContent = "Drop a CT here";
     $("log").innerHTML = "";
@@ -539,24 +559,30 @@
   }
 
   // ---------------------------------------------------------------- viewer
+  // Two views of the scan: "crop" is the model input (192³ at 2 mm, downloaded whole) and
+  // "original" is the converted scan at full resolution, fetched one slice at a time.
+  // Both are shown the same way round: axial A up and R on the left, coronal and sagittal S up.
+  const centre = (shape) => ({ axial: shape[0] >> 1, coronal: shape[1] >> 1, sagittal: shape[2] >> 1 });
+  const view = (source = state.source) => state.views[source];
+
   async function loadCrop() {
     const token = ++state.cropToken;
-    state.measures = []; state.drawing = null; renderMeasures();  // coordinates belong to the old crop
+    state.measures = state.measures.filter((m) => m.source === "original"); // crop coordinates change
+    state.drawing = null; renderMeasures();
     $("viewerBusy").hidden = false;
     $("viewerBusy").textContent = `Cropping ${state.region} with the model's preprocessing…`;
-    $("viewerSub").textContent = `${state.region} crop · 2 mm`;
     try {
       const res = await fetch(`/api/cases/${state.caseData.id}/crop/${state.region}`);
       if (!res.ok) throw new Error(errorText(await res.text()));
-      const shape = res.headers.get("X-Shape").split(",").map(Number);
-      const spacing = (res.headers.get("X-Spacing") || "2,2,2").split(",").map(Number); // mm, (Z, Y, X)
+      const shape = res.headers.get("X-Shape").split(",").map(Number); // Z, Y, X
+      const spacing = (res.headers.get("X-Spacing") || "2,2,2").split(",").map(Number); // mm, Z, Y, X
       const buf = await res.arrayBuffer();
       if (token !== state.cropToken) return;
       state.crop = new Int16Array(buf);
-      state.shape = shape; // [Z, Y, X]
-      state.spacing = spacing;
-      state.index = { axial: Math.floor(shape[0] / 2), coronal: Math.floor(shape[1] / 2), sagittal: Math.floor(shape[2] / 2) };
+      state.views.crop = { shape, spacing, index: centre(shape) };
       $("dlCrop").href = `/api/cases/${state.caseData.id}/download/${state.region}`;
+      if (state.source === "original") await loadOriginal(); // the crop outline moves with the region
+      if (token !== state.cropToken) return;
       $("viewerBusy").hidden = true;
       render();
     } catch (err) {
@@ -566,85 +592,164 @@
     updateSendState();
   }
 
-  function dimsFor(plane) {
-    const [Z, Y, X] = state.shape;
+  async function loadOriginal() {
+    const res = await fetch(`/api/cases/${state.caseData.id}/original`);
+    if (!res.ok) throw new Error(errorText(await res.text()));
+    const meta = await res.json();
+    const prev = state.views.original;
+    state.views.original = {
+      shape: meta.shape, spacing: meta.spacing, outlines: meta.outlines || {},
+      index: prev ? prev.index : centre(meta.shape),
+      cache: prev ? prev.cache : new Map(), pending: prev ? prev.pending : new Map(),
+    };
+  }
+
+  async function setSource(source) {
+    if (!state.crop || source === state.source) return;
+    if (source === "original" && !state.views.original) {
+      $("viewerBusy").hidden = false;
+      $("viewerBusy").textContent = "Opening the original scan…";
+      try { await loadOriginal(); } catch (err) { $("viewerBusy").textContent = err.message; return; }
+      $("viewerBusy").hidden = true;
+    }
+    state.source = source;
+    state.drawing = null;
+    setPressed("sourceSeg", "source", source);
+    render();
+  }
+
+  function dimsFor(plane, source = state.source) {
+    const [Z, Y, X] = view(source).shape;
     return { axial: [X, Y, Z], coronal: [X, Z, Y], sagittal: [Y, Z, X] }[plane]; // width, height, depth
   }
   const planeDims = () => dimsFor(state.plane);
 
+  // Millimetres per pixel across (columns) and down (rows) each plane.
+  function pixelMm(plane, source = state.source) {
+    const [sz, sy, sx] = view(source).spacing;
+    return { axial: [sx, sy], coronal: [sx, sz], sagittal: [sy, sz] }[plane];
+  }
+
   // Index into the crop (Z, Y, X) of row r, column c on slice k of a plane, as drawn on screen
-  // (coronal and sagittal are flipped so superior is up).
-  function voxelIndex(plane, k, r, c) {
-    const [Z, Y, X] = state.shape;
+  // (coronal and sagittal flipped so superior is up). Original slices arrive already oriented.
+  function cropIndex(plane, k, r, c) {
+    const [Z, Y, X] = state.views.crop.shape;
     if (plane === "axial") return k * Y * X + r * X + c;
     if (plane === "coronal") return (Z - 1 - r) * Y * X + k * X + c;
     return (Z - 1 - r) * Y * X + c * X + k;
   }
 
-  // Millimetres per pixel across (columns) and down (rows) each plane.
-  function pixelMm(plane) {
-    const [sz, sy, sx] = state.spacing;
-    return { axial: [sx, sy], coronal: [sx, sz], sagittal: [sy, sz] }[plane];
+  // (r, c) -> HU on one slice, or null while an original slice is still loading.
+  function sampler(source, plane, k) {
+    if (source === "crop") return state.crop ? (r, c) => state.crop[cropIndex(plane, k, r, c)] : null;
+    const o = state.views.original, key = `${plane}:${k}`, slice = o && o.cache.get(key);
+    if (!slice) return null;
+    o.cache.delete(key); o.cache.set(key, slice); // keep recently used slices
+    const w = dimsFor(plane, "original")[0];
+    return (r, c) => slice[r * w + c];
   }
 
-  function render() {
-    if (!state.crop) return;
-    const [w, h, depth] = planeDims();
-    const canvas = $("canvas");
+  function fetchSlice(plane, k) {
+    const o = state.views.original, key = `${plane}:${k}`;
+    if (!o || o.cache.has(key) || k < 0 || k >= dimsFor(plane, "original")[2]) return Promise.resolve();
+    if (o.pending.has(key)) return o.pending.get(key);
+    const job = (async () => {
+      try {
+        const res = await fetch(`/api/cases/${state.caseData.id}/original/${plane}/${k}`);
+        if (!res.ok) return;
+        const slice = new Int16Array(await res.arrayBuffer());
+        if (state.views.original !== o) return; // another scan was loaded meanwhile
+        o.cache.set(key, slice);
+        while (o.cache.size > 160) o.cache.delete(o.cache.keys().next().value);
+        if (state.source === "original" && state.plane === plane && o.index[plane] === k) render();
+      } finally {
+        o.pending.delete(key);
+      }
+    })();
+    o.pending.set(key, job);
+    return job;
+  }
+
+  // Paint one slice in the current window.
+  function paint(canvas, get, w, h) {
     canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    const img = ctx.createImageData(w, h);
-    const k = Math.min(state.index[state.plane], depth - 1);
-    const lo = state.wl - state.ww / 2, scale = 255 / state.ww, d = state.crop, px = img.data;
+    const ctx = canvas.getContext("2d"), img = ctx.createImageData(w, h);
+    const lo = state.wl - state.ww / 2, scale = 255 / state.ww, px = img.data;
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
-        let v = (d[voxelIndex(state.plane, k, r, c)] - lo) * scale;
+        let v = (get(r, c) - lo) * scale;
         v = v < 0 ? 0 : v > 255 ? 255 : v;
         const o = (r * w + c) * 4;
         px[o] = px[o + 1] = px[o + 2] = v; px[o + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
+  }
+
+  // Size the image box to the slice's true proportions (thin-slice coronals are tall).
+  function fitStage(w, h) {
+    const [mx, my] = pixelMm(state.plane);
+    const aspect = (w * mx) / (h * my), stage = $("stage");
+    stage.style.width = aspect >= 1 ? "100%" : `${aspect * 100}%`;
+    stage.style.height = aspect >= 1 ? `${100 / aspect}%` : "100%";
+  }
+
+  function render() {
+    if (!state.crop || !view()) return;
+    const [w, h, depth] = planeDims();
+    const k = Math.min(view().index[state.plane], depth - 1);
     const slider = $("slice");
     slider.max = depth - 1; slider.value = k;
     const [t, b, l, rr] = ORIENT[state.plane];
     $("oriT").textContent = t; $("oriB").textContent = b; $("oriL").textContent = l; $("oriR").textContent = rr;
+    const [sz, sy, sx] = view().spacing;
+    $("viewerSub").textContent = state.source === "crop"
+      ? `model input · ${state.region} · 2 mm`
+      : `original · ${[sx, sy, sz].map((s) => s.toFixed(2)).join(" × ")} mm`;
+    const get = sampler(state.source, state.plane, k);
+    if (!get) { fetchSlice(state.plane, k); updateInfo(); return; } // keep the last image until it arrives
+    fitStage(w, h);
+    paint($("canvas"), get, w, h);
     updateInfo();
     drawOverlay();
+    if (state.source === "original") for (const d of [1, -1, 2, -2, 3, -3]) fetchSlice(state.plane, k + d);
   }
 
   // Slice position, window, and the HU under the pointer.
   function updateInfo() {
-    if (!state.crop) return;
-    const [w, h, depth] = planeDims(), k = state.index[state.plane];
+    if (!state.crop || !view()) return;
+    const [w, h, depth] = planeDims(), k = view().index[state.plane];
     let text = `${state.plane} ${k + 1}/${depth} · W ${state.ww} L ${state.wl}`;
-    if (state.hoverPt) {
+    const get = state.hoverPt && sampler(state.source, state.plane, k);
+    if (get) {
       const c = Math.min(w - 1, Math.floor(state.hoverPt[0])), r = Math.min(h - 1, Math.floor(state.hoverPt[1]));
-      text += ` · ${state.crop[voxelIndex(state.plane, k, r, c)]} HU`;
+      text += ` · ${get(r, c)} HU`;
     }
     $("sliceInfo").textContent = text;
   }
 
   // ---------------------------------------------------------------- measurements
-  // Points are in image pixels of their plane (pixel c spans c..c+1), stored with the slice they were drawn on.
+  // Points are in image pixels of their slice (pixel c spans c..c+1). Each measurement keeps the
+  // source, plane and slice it was drawn on.
 
   function measure(m) {
-    const [mx, my] = pixelMm(m.plane);
+    const [mx, my] = pixelMm(m.plane, m.source);
     if (m.type === "ruler") {
       const mm = Math.hypot((m.p1[0] - m.p0[0]) * mx, (m.p1[1] - m.p0[1]) * my);
       return { ...m, mm, label: `${mm.toFixed(1)} mm` };
     }
-    const [w, h] = dimsFor(m.plane);
+    const [w, h] = dimsFor(m.plane, m.source);
     const cx = (m.p0[0] + m.p1[0]) / 2, cy = (m.p0[1] + m.p1[1]) / 2;
     const rx = Math.abs(m.p1[0] - m.p0[0]) / 2, ry = Math.abs(m.p1[1] - m.p0[1]) / 2;
+    const get = sampler(m.source, m.plane, m.index);
     let n = 0, sum = 0, sumSq = 0, min = Infinity, max = -Infinity;
-    if (rx > 0 && ry > 0) {
+    if (get && rx > 0 && ry > 0) {
       // Pixels whose centres fall inside the ellipse.
       for (let r = Math.max(0, Math.floor(cy - ry)); r <= Math.min(h - 1, Math.ceil(cy + ry)); r++) {
         for (let c = Math.max(0, Math.floor(cx - rx)); c <= Math.min(w - 1, Math.ceil(cx + rx)); c++) {
           const dx = (c + 0.5 - cx) / rx, dy = (r + 0.5 - cy) / ry;
           if (dx * dx + dy * dy > 1) continue;
-          const v = state.crop[voxelIndex(m.plane, m.index, r, c)];
+          const v = get(r, c);
           n++; sum += v; sumSq += v * v; min = Math.min(min, v); max = Math.max(max, v);
         }
       }
@@ -656,55 +761,77 @@
   }
 
   const formatArea = (mm2) => (mm2 >= 100 ? `${(mm2 / 100).toFixed(1)} cm²` : `${Math.round(mm2)} mm²`);
+  const where = (m) => `${m.source === "original" ? "original " : ""}${m.plane} ${m.index + 1}`;
+
+  function describe(m) {
+    if (m.type === "ruler") return `Ruler ${m.mm.toFixed(1)} mm`;
+    return m.n
+      ? `ROI mean ${Math.round(m.mean)} HU, SD ${Math.round(m.sd)}, min ${m.min}, max ${m.max}, ${formatArea(m.area)} (${m.n} px)`
+      : "ROI with no pixels";
+  }
+
+  // The model crop's outline on an original slice, in image pixels [x0, y0, x1, y1], or null.
+  function cropOutline(plane, k) {
+    const o = state.views.original, box = o && o.outlines[state.region];
+    if (!box) return null;
+    const [z0, z1, y0, y1, x0, x1] = box, Z = o.shape[0], at = k + 0.5;
+    if (plane === "axial") return at >= z0 && at <= z1 ? [x0, y0, x1, y1] : null;
+    if (plane === "coronal") return at >= y0 && at <= y1 ? [x0, Z - z1, x1, Z - z0] : null;
+    return at >= x0 && at <= x1 ? [y0, Z - z1, y1, Z - z0] : null;
+  }
+
+  // SVG for measurements (and the crop outline) on a w × h image shown at W × H screen pixels.
+  function overlayMarkup(items, w, h, W, H, outline) {
+    const sx = W / w, sy = H / h, fs = 12, pad = 3;
+    // Labels stay inside the image (monospace text is about 0.62 em per character).
+    const label = (x, y, text, anchor, cls = "") => {
+      const width = text.length * 0.62 * fs;
+      const left = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+      x += Math.max(pad - left, Math.min(0, W - pad - (left + width)));
+      y = Math.min(H - pad, Math.max(fs + pad, y));
+      return `<text class="${cls}" x="${x}" y="${y}" font-size="${fs}" stroke-width="3" text-anchor="${anchor}">${escapeHtml(text)}</text>`;
+    };
+    let out = "";
+    if (outline) {
+      const [ax, ay, bx, by] = [outline[0] * sx, outline[1] * sy, outline[2] * sx, outline[3] * sy];
+      out += `<rect class="outline" x="${ax}" y="${ay}" width="${bx - ax}" height="${by - ay}"/>` +
+        label(Math.max(ax, 0) + 4, Math.max(ay, 0) + fs + 2, `model input (${state.region})`, "start", "outline-label");
+    }
+    return out + items.map((m) => {
+      const cls = `m${m.preview ? " preview" : ""}`;
+      if (m.type === "ruler") {
+        const [x0, y0, x1, y1] = [m.p0[0] * sx, m.p0[1] * sy, m.p1[0] * sx, m.p1[1] * sy];
+        const anchor = x1 > W * 0.65 ? "end" : "start";
+        return `<line class="${cls}" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke-width="1.5"/>` +
+          `<circle class="end" cx="${x0}" cy="${y0}" r="2.5"/><circle class="end" cx="${x1}" cy="${y1}" r="2.5"/>` +
+          label(x1 + (anchor === "end" ? -6 : 6), y1 - 6, m.label, anchor);
+      }
+      const cx = ((m.p0[0] + m.p1[0]) / 2) * sx, cy = ((m.p0[1] + m.p1[1]) / 2) * sy;
+      const rx = (Math.abs(m.p1[0] - m.p0[0]) / 2) * sx, ry = (Math.abs(m.p1[1] - m.p0[1]) / 2) * sy;
+      const below = cy + ry + 14 < H;
+      return `<ellipse class="${cls}" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" stroke-width="1.5"/>` +
+        label(cx, below ? cy + ry + 13 : cy - ry - 5, m.label, "middle");
+    }).join("");
+  }
 
   function drawOverlay() {
     const svg = $("overlay");
-    if (!state.crop) { svg.innerHTML = ""; return; }
-    const [w, h] = planeDims(), k = state.index[state.plane];
-    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-    const unit = w / Math.max(1, $("canvas").getBoundingClientRect().width); // image pixels per screen pixel
-    const items = state.measures.filter((m) => m.plane === state.plane && m.index === k);
-    if (state.drawing && state.drawing.plane === state.plane && state.drawing.index === k) {
-      items.push({ ...measure(state.drawing), preview: true });
-    }
-    const fs = 12 * unit, pad = 3 * unit;
-    // Labels are kept inside the image (monospace text is about 0.62 em per character).
-    const label = (x, y, text, anchor) => {
-      const width = text.length * 0.62 * fs;
-      const left = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
-      x += Math.max(pad - left, Math.min(0, w - pad - (left + width)));
-      y = Math.min(h - pad, Math.max(fs + pad, y));
-      return `<text x="${x}" y="${y}" font-size="${fs}" stroke-width="${3 * unit}" text-anchor="${anchor}">${escapeHtml(text)}</text>`;
-    };
-    svg.innerHTML = items.map((m) => {
-      const cls = `m${m.preview ? " preview" : ""}`;
-      if (m.type === "ruler") {
-        const [[x0, y0], [x1, y1]] = [m.p0, m.p1];
-        const anchor = x1 > w * 0.65 ? "end" : "start", dx = (anchor === "end" ? -6 : 6) * unit;
-        return `<line class="${cls}" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` +
-          `<circle class="end" cx="${x0}" cy="${y0}" r="${2 * unit}"/><circle class="end" cx="${x1}" cy="${y1}" r="${2 * unit}"/>` +
-          label(x1 + dx, y1 - 6 * unit, m.label, anchor);
-      }
-      const cx = (m.p0[0] + m.p1[0]) / 2, cy = (m.p0[1] + m.p1[1]) / 2;
-      const rx = Math.abs(m.p1[0] - m.p0[0]) / 2, ry = Math.abs(m.p1[1] - m.p0[1]) / 2;
-      const below = cy + ry + 14 * unit < h;
-      return `<ellipse class="${cls}" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` +
-        label(cx, below ? cy + ry + 13 * unit : cy - ry - 5 * unit, m.label, "middle");
-    }).join("");
+    if (!state.crop || !view()) { svg.innerHTML = ""; return; }
+    const [w, h] = planeDims(), k = view().index[state.plane];
+    const { width: W, height: H } = $("canvas").getBoundingClientRect();
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const here = (m) => m.source === state.source && m.plane === state.plane && m.index === k;
+    const items = state.measures.filter(here);
+    if (state.drawing && here(state.drawing)) items.push({ ...measure(state.drawing), preview: true });
+    svg.innerHTML = overlayMarkup(items, w, h, W, H, state.source === "original" ? cropOutline(state.plane, k) : null);
   }
 
   function renderMeasures() {
     $("clearMeasures").hidden = !state.measures.length;
-    $("measureList").innerHTML = state.measures.map((m, i) => {
-      const where = `${m.plane} ${m.index + 1}`;
-      const what = m.type === "ruler"
-        ? `Ruler ${m.mm.toFixed(1)} mm`
-        : m.n
-          ? `ROI mean ${Math.round(m.mean)} HU, SD ${Math.round(m.sd)}, min ${m.min}, max ${m.max}, ${formatArea(m.area)} (${m.n} px)`
-          : "ROI with no pixels";
-      return `<li><span class="go" data-i="${i}" title="Go to this slice">${escapeHtml(what)} · ${where}</span>` +
-        `<button class="x" type="button" data-i="${i}" title="Delete" aria-label="Delete measurement">×</button></li>`;
-    }).join("");
+    $("measureList").innerHTML = state.measures.map((m, i) =>
+      `<li><span class="go" data-i="${i}" title="Go to this slice">${escapeHtml(describe(m))} · ${where(m)}</span>` +
+      `<button class="x" type="button" data-i="${i}" title="Delete" aria-label="Delete measurement">×</button></li>`
+    ).join("");
   }
 
   function setTool(tool) {
@@ -720,10 +847,141 @@
   }
 
   function step(delta) {
-    if (!state.crop) return;
-    const depth = planeDims()[2];
-    state.index[state.plane] = Math.max(0, Math.min(depth - 1, state.index[state.plane] + delta));
+    if (!state.crop || !view()) return;
+    const depth = planeDims()[2], index = view().index;
+    index[state.plane] = Math.max(0, Math.min(depth - 1, index[state.plane] + delta));
     render();
+  }
+
+  // ---------------------------------------------------------------- case summary export
+  // One self-contained HTML file: scan details, key images with measurements, the measurement
+  // table and the conversation. It opens in any browser and prints to PDF.
+
+  async function snapshot({ source, plane, index }) {
+    if (!view(source)) return null;
+    if (source === "original") await fetchSlice(plane, index);
+    const get = sampler(source, plane, index);
+    if (!get) return null;
+    const [w, h, depth] = dimsFor(plane, source), [mx, my] = pixelMm(plane, source);
+    const canvas = document.createElement("canvas");
+    paint(canvas, get, w, h);
+    const aspect = (w * mx) / (h * my);
+    let W = 520, H = Math.round(W / aspect);
+    if (H > 640) { H = 640; W = Math.round(H * aspect); }
+    const items = state.measures.filter((m) => m.source === source && m.plane === plane && m.index === index);
+    const [t, b, l, r] = ORIENT[plane];
+    const ori = (x, y, s, a) => `<text class="ori" x="${x}" y="${y}" text-anchor="${a}">${s}</text>`;
+    const svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">` +
+      `<image href="${canvas.toDataURL("image/png")}" width="${W}" height="${H}" preserveAspectRatio="none"/>` +
+      overlayMarkup(items, w, h, W, H, source === "original" ? cropOutline(plane, index) : null) +
+      ori(W / 2, 14, t, "middle") + ori(W / 2, H - 5, b, "middle") + ori(6, H / 2, l, "start") + ori(W - 6, H / 2, r, "end") +
+      "</svg>";
+    const name = source === "original" ? "Original scan" : `Model input (${state.region}, 2 mm)`;
+    return { svg, caption: `${name} · ${plane} ${index + 1}/${depth} · W ${state.ww} L ${state.wl}` };
+  }
+
+  function transcriptHtml() {
+    const parts = [];
+    for (const el of $("log").children) {
+      if (el.classList.contains("divider")) {
+        parts.push(`<p class="divider">${escapeHtml(el.textContent)}</p>`);
+      } else if (el.classList.contains("user")) {
+        parts.push(`<div class="q"><b>Question</b><p>${escapeHtml(el.textContent)}</p></div>`);
+      } else if (el.classList.contains("assistant")) {
+        const reasoning = (el.querySelector("details .body")?.textContent || "").trim();
+        const meta = el.querySelector(".meta span")?.textContent || "";
+        // .answer holds markup this page built from escaped text, so it is safe to copy.
+        parts.push(`<div class="a"><b>Answer</b>` +
+          (reasoning ? `<details><summary>Reasoning</summary><p class="pre">${escapeHtml(reasoning)}</p></details>` : "") +
+          `${el.querySelector(".answer").innerHTML}<p class="meta">${escapeHtml(meta)}</p></div>`);
+      }
+    }
+    return parts.length ? parts.join("") : "<p>No questions were asked.</p>";
+  }
+
+  const SUMMARY_CSS = `
+    body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #15181c; max-width: 920px; margin: 32px auto; padding: 0 20px; }
+    h1 { margin: 0 0 4px; font-size: 24px; } h2 { font-size: 17px; margin: 28px 0 8px; border-bottom: 1px solid #dce0e5; padding-bottom: 4px; }
+    .sub, .small, .meta, .divider, .muted, .pre, figcaption, footer, .facts th { color: #5b6570; }
+    .sub { margin: 0; } .small { font-size: 13px; } .meta { font-size: 12px; } .divider { font-size: 12px; text-align: center; }
+    .warn { background: #fff6e5; border: 1px solid #f3d7a1; color: #7a4a00; padding: 8px 12px; border-radius: 8px; }
+    table { border-collapse: collapse; } th, td { text-align: left; padding: 3px 14px 3px 0; vertical-align: top; } .facts th { font-weight: 500; }
+    table.m td, table.m th { border-bottom: 1px solid #eef0f3; padding: 5px 14px 5px 0; }
+    .notes li { color: #7a4a00; }
+    figure { display: inline-block; margin: 0 16px 16px 0; vertical-align: top; } figcaption { font: 12px ui-monospace, Menlo, monospace; margin-top: 4px; }
+    svg { background: #000; border-radius: 6px; max-width: 100%; height: auto; }
+    svg .m { fill: none; stroke: #ffd84a; } svg .end { fill: #ffd84a; }
+    svg text { fill: #ffd84a; stroke: #000; paint-order: stroke; stroke-linejoin: round; font-family: ui-monospace, Menlo, monospace; }
+    svg .outline { fill: none; stroke: #2cc5b3; stroke-dasharray: 6 4; stroke-width: 1.5; } svg text.outline-label { fill: #2cc5b3; }
+    svg text.ori { fill: #f5d76e; font-size: 12px; font-weight: 600; stroke-width: 3; }
+    .q, .a { margin: 14px 0; } .q p { background: #e9eef5; border-radius: 10px; padding: 8px 12px; margin: 4px 0; white-space: pre-wrap; }
+    .a h4 { font-size: 14px; margin: 12px 0 4px; } .a p { margin: 6px 0; } .pre { white-space: pre-wrap; }
+    .labels { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; } .label { background: #e2f3f1; border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+    footer { margin-top: 36px; font-size: 12px; border-top: 1px solid #dce0e5; padding-top: 8px; }
+    @media print { figure, .q, .a { break-inside: avoid; } }`;
+
+  function summaryHtml(study, facts, warnings, shots, transcript, exported) {
+    const rows = facts.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`).join("");
+    const notes = warnings.length ? `<ul class="notes">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>` : "";
+    const figures = shots.map((s) => `<figure>${s.svg}<figcaption>${escapeHtml(s.caption)}</figcaption></figure>`).join("");
+    const table = state.measures.length
+      ? `<table class="m"><tr><th>Measurement</th><th>Image</th></tr>${state.measures.map((m) =>
+          `<tr><td>${escapeHtml(describe(m))}</td><td>${escapeHtml(where(m))}</td></tr>`).join("")}</table>`
+      : "<p>No measurements.</p>";
+    return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(study)} · case summary</title><style>${SUMMARY_CSS}</style></head>
+<body>
+<h1>${escapeHtml(study)}</h1>
+<p class="sub">NV-Reason-CT Reader · case summary · exported ${escapeHtml(exported)}</p>
+<p class="warn"><b>Research and teaching use only.</b> The text is AI-generated and the measurements are approximate. Not for diagnosis or treatment decisions; review by a qualified professional is required.</p>
+<h2>Scan</h2><table class="facts">${rows}</table>${notes}
+<h2>Images</h2>${figures || "<p>No images.</p>"}
+<h2>Measurements</h2>${table}
+<p class="small">Measurements on the model input are made at 2 mm and are approximate (about ±2 mm); those on the original scan use its own voxel size.</p>
+<h2>Questions and answers</h2>${transcript}
+<footer>Model: NVIDIA NV-Reason-CT (huggingface.co/nvidia/NV-Reason-CT), original weights. This summary includes no patient name, ID or scan dates from the DICOM headers. Check the study name and the images (burned-in text) before sharing.</footer>
+</body></html>`;
+  }
+
+  async function exportSummary() {
+    if (!state.caseData || !state.crop) return;
+    const button = $("exportCase");
+    button.disabled = true; button.textContent = "Exporting…";
+    try {
+      const v = state.caseData.volume;
+      const study = ($("studyName").value || v.study || "CT study").trim();
+      // The current view, plus every other slice that has a measurement on it.
+      const views = [{ source: state.source, plane: state.plane, index: view().index[state.plane] }];
+      for (const m of state.measures) {
+        if (!views.some((x) => x.source === m.source && x.plane === m.plane && x.index === m.index)) {
+          views.push({ source: m.source, plane: m.plane, index: m.index });
+        }
+      }
+      const shots = [];
+      for (const vw of views.slice(0, 8)) {
+        const shot = await snapshot(vw);
+        if (shot) shots.push(shot);
+      }
+      const now = new Date(), exported = now.toLocaleString();
+      const facts = [
+        ["Study", study],
+        ["Source", `${$("caseSource").textContent}${v.description ? ` · ${v.description}` : ""}`],
+        ["Matrix", v.shape.join(" × ")],
+        ["Voxel size", `${v.spacing.map((s) => s.toFixed(2)).join(" × ")} mm`],
+        ["Region analysed", state.region],
+      ];
+      const html = summaryHtml(study, facts, v.warnings, shots, transcriptHtml(), exported);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      const base = study.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_") || "CT_study";
+      a.download = `${base}_summary_${now.toISOString().slice(0, 10)}.html`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } finally {
+      button.disabled = !state.caseData;
+      button.textContent = "Export summary";
+    }
   }
 
   function setPressed(seg, attr, value) {
@@ -1000,6 +1258,7 @@
     if ((e.key === "f" || e.key === "F") && state.crop) { e.preventDefault(); setExpanded(!document.body.classList.contains("viewer-expanded")); return; }
     const key = e.key.toLowerCase();
     if ((key === "r" || key === "e") && state.crop) { e.preventDefault(); setTool(key === "r" ? "ruler" : "roi"); return; }
+    if (key === "o" && state.crop) { e.preventDefault(); setSource(state.source === "crop" ? "original" : "crop"); return; }
     if ((e.key === "Delete" || e.key === "Backspace") && state.measures.length) {
       e.preventDefault(); state.measures.pop(); renderMeasures(); drawOverlay(); return;
     }
@@ -1057,7 +1316,7 @@
     if (d) { e.preventDefault(); setLeftWidth(leftWidth() + d, true); }
   };
 
-  $("slice").oninput = (e) => { state.index[state.plane] = Number(e.target.value); render(); };
+  $("slice").oninput = (e) => { if (view()) { view().index[state.plane] = Number(e.target.value); render(); } };
   $("canvas").addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? -1 : 1); }, { passive: false });
 
   // Drawing a ruler or ROI: press on the image, drag, release.
@@ -1066,7 +1325,7 @@
     e.preventDefault();
     const p = canvasPoint(e);  // read before focusing: focus must not scroll the image under the pointer
     $("canvas").focus({ preventScroll: true });
-    state.drawing = { type: state.tool, plane: state.plane, index: state.index[state.plane], p0: p, p1: p };
+    state.drawing = { type: state.tool, source: state.source, plane: state.plane, index: view().index[state.plane], p0: p, p1: p };
     const move = (ev) => { if (state.drawing) { state.drawing.p1 = canvasPoint(ev); drawOverlay(); } };
     const finish = (keep) => () => {
       window.removeEventListener("pointermove", move);
@@ -1097,9 +1356,13 @@
       state.measures.splice(i, 1); renderMeasures(); drawOverlay(); return;
     }
     const m = state.measures[i];
-    state.plane = m.plane; state.index[m.plane] = m.index;
-    setPressed("planeSeg", "plane", m.plane); render();
+    state.plane = m.plane;
+    setPressed("planeSeg", "plane", m.plane);
+    view(m.source).index[m.plane] = m.index;
+    if (m.source !== state.source) setSource(m.source); else render();
   };
+  $("sourceSeg").onclick = (e) => { const b = e.target.closest("button"); if (b) setSource(b.dataset.source); };
+  $("exportCase").onclick = exportSummary;
   $("canvas").onkeydown = (e) => {
     const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }[e.key];
     if (d) { e.preventDefault(); step(d); }

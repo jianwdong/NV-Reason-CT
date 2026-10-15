@@ -109,8 +109,13 @@ that server.
    the divider between the image and the conversation (your browser remembers
    the width; double-click the divider to reset it), or press **F** or click
    **Expand** to fill the window with the viewer (**Esc** or **F** to return).
-   The image is the 2 mm model input, so enlarging it magnifies 2 mm voxels
-   rather than revealing finer detail.
+
+   Press **O** or click **Original** to see the converted scan at its full
+   resolution instead of the 2 mm model input. A dashed outline shows the
+   model's 38 cm cube for the chosen region, so you can see what it includes
+   and what it leaves out. Slices load as you scroll, and coronal and
+   sagittal views keep the scan's true proportions. Press **O** again to
+   return to the model input.
 
    To measure, hover over the image to read the HU of the voxel under the
    pointer. Press **R** (Ruler) and drag for a distance in mm, or press
@@ -118,11 +123,12 @@ that server.
    and pixel count. A pixel counts as inside the ellipse when its center is.
    Measurements work in all three planes and stay on the slice where you drew
    them. The list under the image jumps back to that slice when you click an
-   entry; **×**, **Delete** or **Clear measurements** removes them. They are
-   made on the 2 mm model input, not the original scan, so distances are
-   approximate (about ±2 mm) and HU near edges are blurred by resampling.
-   Measurements are cleared when the crop changes (new scan, region or
-   rebuild).
+   entry; **×**, **Delete** or **Clear measurements** removes them. On the
+   original scan, measurements use its own voxel size. On the 2 mm model
+   input, distances are approximate (about ±2 mm) and HU near edges are
+   blurred by resampling. Model-input measurements are cleared when the crop
+   changes (switching region), and all measurements when the volume changes
+   (new scan or rebuild).
 
    If the anatomy you care about is
    cut off, switch between **Chest** and **Abdomen**. Switching starts a new
@@ -135,7 +141,16 @@ that server.
    **New conversation**, or reloading the page starts a new conversation.
 4. Turn off **Show reasoning** for short, direct answers. Use **Stop** to
    cancel a long generation.
-5. Download the converted volume or the model-input crop (both `.nii`)
+5. Click **Export summary** to save the case as a single HTML file, named
+   after the **Study name** in the Volume card. That name comes from the
+   DICOM study description (or the file or folder name), and you can edit it.
+   The file contains the scan details, the current image and every slice you
+   measured on (with the measurements drawn in), the measurement table, and
+   the whole conversation including reasoning. It opens in any browser and
+   prints to PDF. It includes no patient name, ID or scan dates from the
+   DICOM headers, but check the study name and any burned-in text before
+   sharing.
+6. Download the converted volume or the model-input crop (both `.nii`)
    to inspect them in 3D Slicer, ITK-SNAP, or another viewer.
 
 ## Large, full-resolution scans
@@ -166,6 +181,7 @@ the number of slices.
 - `convert.py` — DICOM, JPEG/PNG, and NIfTI conversion to a HU volume.
 - `static/index.html` — the page (plain HTML/CSS/JS, no build step).
 - `test_convert.py` — round-trip tests on a synthetic phantom: `python -m pytest webapp/test_convert.py`.
+- `LICENSE` — MIT License for the reader (this folder). NVIDIA's model and code keep their OpenMDW license.
 
 ## API
 
@@ -177,6 +193,8 @@ The page uses a small JSON API, which you can also script against:
 | `POST` | `/api/cases` | Multipart upload (`files` fields, optional `options` JSON); returns the case |
 | `POST` | `/api/cases/{id}/convert` | Re-convert with `{"series_uid": ...}` or `{"jpeg": {...}}` |
 | `GET` | `/api/cases/{id}/crop/{chest\|abdomen}` | Model-input crop as gzip-compressed little-endian int16 HU, shape in `X-Shape` and voxel size in mm in `X-Spacing` (both Z,Y,X) |
+| `GET` | `/api/cases/{id}/original` | Original scan's shape and voxel size (Z,Y,X) and the crop outline per region, as `[z0, z1, y0, y1, x0, x1]` in image coordinates |
+| `GET` | `/api/cases/{id}/original/{axial\|coronal\|sagittal}/{k}` | One original slice as gzip-compressed int16 HU, rows × columns in `X-Shape`, oriented as on screen |
 | `GET` | `/api/cases/{id}/download/{volume\|chest\|abdomen}` | Download the converted volume or a crop |
 | `POST` | `/api/generate` | `{"case_id", "region", "prompt", "history", "thinking", "max_new_tokens"}`; Server-Sent Events stream |
 | `DELETE` | `/api/cases/{id}` | Delete a case and its files |

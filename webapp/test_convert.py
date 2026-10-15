@@ -55,6 +55,7 @@ def write_slice(path, pixels, ipp, iop, spacing, series_uid, instance, descripti
     ds.SeriesInstanceUID = series_uid
     ds.SeriesNumber = 2
     ds.SeriesDescription = description
+    ds.StudyDescription = "CT CHEST TEST"
     ds.InstanceNumber = instance
     ds.ImagePositionPatient = [float(v) for v in ipp]
     ds.ImageOrientationPatient = [float(v) for v in iop]
@@ -111,6 +112,7 @@ def test_dicom_series_roundtrip():
         volume, series, uid = build_volume(inputs_for(tmp / "study"), tmp)
         assert len(series) == 2 and series[0].uid == uid and series[0].images == SLICES + 1
         assert any("localizer" in w for w in volume.warnings), volume.warnings
+        assert volume.study == "CT CHEST TEST", volume.study
         check_matches_phantom(volume.path, vol)
 
         # The other series can be selected explicitly.
@@ -159,6 +161,7 @@ def test_png_stack_orientation_and_window():
         expected = np.clip(expected, wl - ww / 2, wl + ww / 2)  # values outside the window are lost
         assert np.abs(got - expected).max() <= ww / 255.0 + 1, np.abs(got - expected).max()
         assert any("Hounsfield" in w for w in volume.warnings)
+        assert volume.study == "pngs", volume.study  # folder name when there is no DICOM study
 
 
 if __name__ == "__main__":

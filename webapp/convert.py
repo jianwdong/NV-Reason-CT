@@ -55,6 +55,7 @@ class SeriesInfo:
     rows: int
     cols: int
     files: list[Path] = field(default_factory=list, repr=False)
+    study: str = ""  # DICOM StudyDescription
 
     def to_json(self):
         return {
@@ -99,6 +100,7 @@ class Volume:
     spacing: tuple[float, float, float]
     warnings: list[str]
     description: str = ""
+    study: str = ""  # a name for the study: DICOM StudyDescription, else a file or folder name
 
     def to_json(self):
         extent = [round(n * s, 1) for n, s in zip(self.shape, self.spacing)]
@@ -109,6 +111,7 @@ class Volume:
             "extent_mm": extent,
             "warnings": self.warnings,
             "description": self.description,
+            "study": self.study,
         }
 
 
@@ -231,6 +234,7 @@ def scan_dicom_series(files):
             rows=int(ds.Rows),
             cols=int(ds.Columns),
             files=sorted(paths),
+            study=str(ds.get("StudyDescription", "") or "").strip(),
         ))
     series.sort(key=lambda s: (s.modality != "CT", -s.images))
     return series
@@ -420,7 +424,7 @@ def dicom_to_nifti(series, out_path):
     if len(slices) < 16:
         warnings.append(_thin_coverage_warning(len(slices), np.linalg.norm(lps[:3, 2])))
     zooms = (col_spacing, row_spacing, float(np.linalg.norm(lps[:3, 2])))
-    return Volume(out_path, "dicom", vol.shape, zooms, warnings, series.description)
+    return Volume(out_path, "dicom", vol.shape, zooms, warnings, series.description, series.study or series.description)
 
 
 # --------------------------------------------------------------------------------------
@@ -494,7 +498,7 @@ def images_to_nifti(files, out_path, opts):
     if len(images) < 16:
         warnings.append(_thin_coverage_warning(len(images), dz))
     desc = f"{len(images)} image slice(s)"
-    return Volume(out_path, "jpeg", vol.shape, (pixel, pixel, dz), warnings, desc)
+    return Volume(out_path, "jpeg", vol.shape, (pixel, pixel, dz), warnings, desc, _folder_name(files))
 
 
 # --------------------------------------------------------------------------------------
@@ -515,16 +519,26 @@ def nifti_passthrough(item, out_path):
     data = np.asarray(img.dataobj)
     if float(np.percentile(data, 1)) > -200:
         warnings.append("Intensities do not look like Hounsfield units (no air near -1000 HU).")
-    if len(shape) == 3:
+    if len(shape) == 3 and not item.name.lower().endswith(".gz"):
         shutil.copyfile(item.path, out_path)
-    else:
-        nib.save(img, str(out_path))
+    else:  # decompress once so the original-scan view can read slices straight from disk
+        if data.dtype.kind == "f":
+            data = data.astype(np.float32)
+        nib.save(nib.Nifti1Image(data, img.affine), str(out_path))
     zooms = tuple(float(z) for z in img.header.get_zooms()[:3])
-    return Volume(out_path, "nifti", tuple(int(s) for s in img.shape[:3]), zooms, warnings, Path(item.name).name)
+    name = Path(item.name).name
+    study = name[:-7] if name.lower().endswith(".nii.gz") else name[:-4] if name.lower().endswith(".nii") else name
+    return Volume(out_path, "nifti", tuple(int(s) for s in img.shape[:3]), zooms, warnings, name, study)
 
 
 # --------------------------------------------------------------------------------------
 # Entry point
+
+
+def _folder_name(files):
+    """Top-level folder (or zip) the files came from, as a fallback study name."""
+    first = Path(sorted(f.name for f in files)[0]).parts
+    return first[0] if len(first) > 1 else "Image stack"
 
 
 def _thin_coverage_warning(n, spacing_mm):
@@ -565,8 +579,7 @@ def build_volume(files, workdir, *, series_uid=None, jpeg=None):
 
     if groups["nifti"]:
         nifti = sorted(groups["nifti"], key=lambda f: natural_key(f.name))
-        suffix = ".nii.gz" if nifti[0].name.lower().endswith(".gz") else ".nii"
-        volume = nifti_passthrough(nifti[0], workdir / f"volume{suffix}")
+        volume = nifti_passthrough(nifti[0], out_path)
         if len(nifti) > 1:
             volume.warnings.append(f"{len(nifti)} NIfTI files dropped; using {Path(nifti[0].name).name}.")
         return volume, [], None
