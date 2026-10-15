@@ -283,12 +283,14 @@ def create_app(engine: Engine, store: CaseStore) -> FastAPI:
         case = store.get(case_id)
         vol, _ = await run_in_threadpool(case.crop, engine, region)
         payload = np.clip(np.rint(vol), -32768, 32767).astype("<i2").tobytes()
+        pixdim = [float(v) for v in getattr(engine.image_loader, "pixdim", (2.0, 2.0, 2.0))]  # x, y, z
         return Response(
             gzip.compress(payload, compresslevel=1),
             media_type="application/octet-stream",
             headers={
                 "Content-Encoding": "gzip",
                 "X-Shape": ",".join(str(n) for n in vol.shape),
+                "X-Spacing": f"{pixdim[2]},{pixdim[1]},{pixdim[0]}",  # mm, same (Z, Y, X) order as the data
                 "Cache-Control": "no-store",
             },
         )

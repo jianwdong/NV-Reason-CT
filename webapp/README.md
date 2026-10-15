@@ -110,7 +110,21 @@ that server.
    the width; double-click the divider to reset it), or press **F** or click
    **Expand** to fill the window with the viewer (**Esc** or **F** to return).
    The image is the 2 mm model input, so enlarging it magnifies 2 mm voxels
-   rather than revealing finer detail. If the anatomy you care about is
+   rather than revealing finer detail.
+
+   To measure, hover over the image to read the HU of the voxel under the
+   pointer. Press **R** (Ruler) and drag for a distance in mm, or press
+   **E** (Oval ROI) and drag out an ellipse for mean ± SD HU, min, max, area
+   and pixel count. A pixel counts as inside the ellipse when its center is.
+   Measurements work in all three planes and stay on the slice where you drew
+   them. The list under the image jumps back to that slice when you click an
+   entry; **×**, **Delete** or **Clear measurements** removes them. They are
+   made on the 2 mm model input, not the original scan, so distances are
+   approximate (about ±2 mm) and HU near edges are blurred by resampling.
+   Measurements are cleared when the crop changes (new scan, region or
+   rebuild).
+
+   If the anatomy you care about is
    cut off, switch between **Chest** and **Abdomen**. Switching starts a new
    conversation, because the model input changes.
 3. Use a prompt chip (**Structured report**, **Reasoning analysis**, a sample
@@ -162,7 +176,7 @@ The page uses a small JSON API, which you can also script against:
 | `GET` | `/api/status` | Model loading state and device |
 | `POST` | `/api/cases` | Multipart upload (`files` fields, optional `options` JSON); returns the case |
 | `POST` | `/api/cases/{id}/convert` | Re-convert with `{"series_uid": ...}` or `{"jpeg": {...}}` |
-| `GET` | `/api/cases/{id}/crop/{chest\|abdomen}` | Model-input crop as gzip-compressed little-endian int16 HU, shape in `X-Shape` (Z,Y,X) |
+| `GET` | `/api/cases/{id}/crop/{chest\|abdomen}` | Model-input crop as gzip-compressed little-endian int16 HU, shape in `X-Shape` and voxel size in mm in `X-Spacing` (both Z,Y,X) |
 | `GET` | `/api/cases/{id}/download/{volume\|chest\|abdomen}` | Download the converted volume or a crop |
 | `POST` | `/api/generate` | `{"case_id", "region", "prompt", "history", "thinking", "max_new_tokens"}`; Server-Sent Events stream |
 | `DELETE` | `/api/cases/{id}` | Delete a case and its files |

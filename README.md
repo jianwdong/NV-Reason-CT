@@ -24,6 +24,10 @@ researcher can use without writing any code.
   exact 38 cm cube the model will read, in axial, coronal and sagittal views.
   Keys **1–4** switch between soft tissue, lung, liver and bone windows, and
   **F** enlarges the image.
+- **Measures.** Hover to read Hounsfield units, draw a **ruler** (R) for
+  distances, or draw an **oval ROI** (E) for mean, SD, min/max and area.
+  These are made on the 2 mm image the model reads, so they are approximate;
+  use your PACS for clinical measurements.
 - **Answers questions.** Ask for a structured report, a reasoning walk-through
   or a yes/no question, then follow up. The model is NVIDIA's original,
   unmodified, and it reads the whole scan again for every question.

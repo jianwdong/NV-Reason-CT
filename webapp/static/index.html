@@ -121,6 +121,18 @@
   body.viewer-expanded #viewerCard .viewer { width: 100%; }
   body.viewer-expanded #viewerHint { display: none; }
   .viewer canvas { width: 100%; height: 100%; display: block; outline: none; }
+  .viewer.measuring canvas { cursor: crosshair; }
+  .viewer svg.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .overlay .m { fill: none; stroke: #ffd84a; }
+  .overlay .m.preview { stroke-dasharray: 4 3; }
+  .overlay .end { fill: #ffd84a; }
+  .overlay text { fill: #ffd84a; stroke: #000; paint-order: stroke; stroke-linejoin: round; font-family: var(--mono); }
+  .measures { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font: 12px var(--mono); }
+  .measures li { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .measures .go { cursor: pointer; }
+  .measures .go:hover { color: var(--accent); }
+  .measures .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
+  .measures .x:hover { color: var(--error-text); }
   .viewer .ori { position: absolute; color: #f5d76e; font: 600 12px var(--mono); text-shadow: 0 0 3px #000; pointer-events: none; }
   .viewer .ori.t { top: 6px; left: 50%; transform: translateX(-50%); }
   .viewer .ori.b { bottom: 6px; left: 50%; transform: translateX(-50%); }
@@ -270,6 +282,7 @@
         </div>
         <div class="viewer">
           <canvas id="canvas" width="192" height="192" tabindex="0" aria-label="CT slice viewer; scroll or use arrow keys to change slice"></canvas>
+          <svg class="overlay" id="overlay" viewBox="0 0 192 192" preserveAspectRatio="none" aria-hidden="true"></svg>
           <span class="ori t" id="oriT">A</span><span class="ori b" id="oriB">P</span>
           <span class="ori l" id="oriL">R</span><span class="ori r" id="oriR">L</span>
           <div class="busy" id="viewerBusy" hidden>Cropping…</div>
@@ -288,7 +301,15 @@
             <a class="muted" id="dlCrop" href="#" download>Crop .nii</a>
           </div>
         </div>
-        <p class="small muted" id="viewerHint" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice. Drag the divider to resize, or press F to expand.</p>
+        <div class="row" style="justify-content:space-between;margin-top:8px">
+          <div class="seg" id="toolSeg" role="group" aria-label="Measurement tool">
+            <button type="button" data-tool="ruler" aria-pressed="false" title="Ruler: drag across the image to measure a distance (R)">Ruler<kbd>R</kbd></button>
+            <button type="button" data-tool="roi" aria-pressed="false" title="Oval ROI: drag out an ellipse to measure Hounsfield units (E)">Oval ROI<kbd>E</kbd></button>
+          </div>
+          <button class="btn sm" id="clearMeasures" type="button" hidden>Clear measurements</button>
+        </div>
+        <ul class="measures" id="measureList" aria-label="Measurements"></ul>
+        <p class="small muted" id="viewerHint" style="margin:8px 0 0">This is exactly what the model sees: the scan resampled to 2 mm and cropped to the chosen region. If the anatomy is cut off, try the other region. Keys 1–4 switch the display window (the model always reads the full HU range); scroll or use the arrow keys to change slice. Drag the divider to resize, or press F to expand. Hover to read HU; R and E draw a ruler or an oval ROI (Delete removes the last one). Measurements are made on this 2 mm image, so treat them as approximate: about ±2 mm, and HU blurred at edges.</p>
       </div>
     </div>
   </section>
@@ -346,6 +367,7 @@
     status: null, caseData: null, region: "chest", plane: "axial",
     crop: null, shape: null, index: { axial: 0, coronal: 0, sagittal: 0 },
     wl: -600, ww: 1500, history: [], controller: null, cropToken: 0,
+    spacing: [2, 2, 2], tool: null, measures: [], drawing: null, hoverPt: null,
   };
 
   // ---------------------------------------------------------------- status
@@ -502,6 +524,7 @@
   function clearCase() {
     if (state.caseData) fetch(`/api/cases/${state.caseData.id}`, { method: "DELETE" });
     state.caseData = null; state.crop = null; state.history = [];
+    state.measures = []; state.drawing = null; renderMeasures();
     $("caseCard").hidden = true; $("viewerCard").hidden = true;
     $("drop").classList.remove("compact"); $("dropTitle").textContent = "Drop a CT here";
     $("log").innerHTML = "";
@@ -518,6 +541,7 @@
   // ---------------------------------------------------------------- viewer
   async function loadCrop() {
     const token = ++state.cropToken;
+    state.measures = []; state.drawing = null; renderMeasures();  // coordinates belong to the old crop
     $("viewerBusy").hidden = false;
     $("viewerBusy").textContent = `Cropping ${state.region} with the model's preprocessing…`;
     $("viewerSub").textContent = `${state.region} crop · 2 mm`;
@@ -525,10 +549,12 @@
       const res = await fetch(`/api/cases/${state.caseData.id}/crop/${state.region}`);
       if (!res.ok) throw new Error(errorText(await res.text()));
       const shape = res.headers.get("X-Shape").split(",").map(Number);
+      const spacing = (res.headers.get("X-Spacing") || "2,2,2").split(",").map(Number); // mm, (Z, Y, X)
       const buf = await res.arrayBuffer();
       if (token !== state.cropToken) return;
       state.crop = new Int16Array(buf);
       state.shape = shape; // [Z, Y, X]
+      state.spacing = spacing;
       state.index = { axial: Math.floor(shape[0] / 2), coronal: Math.floor(shape[1] / 2), sagittal: Math.floor(shape[2] / 2) };
       $("dlCrop").href = `/api/cases/${state.caseData.id}/download/${state.region}`;
       $("viewerBusy").hidden = true;
@@ -540,14 +566,29 @@
     updateSendState();
   }
 
-  function planeDims() {
+  function dimsFor(plane) {
     const [Z, Y, X] = state.shape;
-    return { axial: [X, Y, Z], coronal: [X, Z, Y], sagittal: [Y, Z, X] }[state.plane]; // width, height, depth
+    return { axial: [X, Y, Z], coronal: [X, Z, Y], sagittal: [Y, Z, X] }[plane]; // width, height, depth
+  }
+  const planeDims = () => dimsFor(state.plane);
+
+  // Index into the crop (Z, Y, X) of row r, column c on slice k of a plane, as drawn on screen
+  // (coronal and sagittal are flipped so superior is up).
+  function voxelIndex(plane, k, r, c) {
+    const [Z, Y, X] = state.shape;
+    if (plane === "axial") return k * Y * X + r * X + c;
+    if (plane === "coronal") return (Z - 1 - r) * Y * X + k * X + c;
+    return (Z - 1 - r) * Y * X + c * X + k;
+  }
+
+  // Millimetres per pixel across (columns) and down (rows) each plane.
+  function pixelMm(plane) {
+    const [sz, sy, sx] = state.spacing;
+    return { axial: [sx, sy], coronal: [sx, sz], sagittal: [sy, sz] }[plane];
   }
 
   function render() {
     if (!state.crop) return;
-    const [Z, Y, X] = state.shape;
     const [w, h, depth] = planeDims();
     const canvas = $("canvas");
     canvas.width = w; canvas.height = h;
@@ -557,11 +598,7 @@
     const lo = state.wl - state.ww / 2, scale = 255 / state.ww, d = state.crop, px = img.data;
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
-        let i;
-        if (state.plane === "axial") i = k * Y * X + r * X + c;
-        else if (state.plane === "coronal") i = (Z - 1 - r) * Y * X + k * X + c;
-        else i = (Z - 1 - r) * Y * X + c * X + k;
-        let v = (d[i] - lo) * scale;
+        let v = (d[voxelIndex(state.plane, k, r, c)] - lo) * scale;
         v = v < 0 ? 0 : v > 255 ? 255 : v;
         const o = (r * w + c) * 4;
         px[o] = px[o + 1] = px[o + 2] = v; px[o + 3] = 255;
@@ -572,7 +609,114 @@
     slider.max = depth - 1; slider.value = k;
     const [t, b, l, rr] = ORIENT[state.plane];
     $("oriT").textContent = t; $("oriB").textContent = b; $("oriL").textContent = l; $("oriR").textContent = rr;
-    $("sliceInfo").textContent = `${state.plane} ${k + 1}/${depth} · W ${state.ww} L ${state.wl}`;
+    updateInfo();
+    drawOverlay();
+  }
+
+  // Slice position, window, and the HU under the pointer.
+  function updateInfo() {
+    if (!state.crop) return;
+    const [w, h, depth] = planeDims(), k = state.index[state.plane];
+    let text = `${state.plane} ${k + 1}/${depth} · W ${state.ww} L ${state.wl}`;
+    if (state.hoverPt) {
+      const c = Math.min(w - 1, Math.floor(state.hoverPt[0])), r = Math.min(h - 1, Math.floor(state.hoverPt[1]));
+      text += ` · ${state.crop[voxelIndex(state.plane, k, r, c)]} HU`;
+    }
+    $("sliceInfo").textContent = text;
+  }
+
+  // ---------------------------------------------------------------- measurements
+  // Points are in image pixels of their plane (pixel c spans c..c+1), stored with the slice they were drawn on.
+
+  function measure(m) {
+    const [mx, my] = pixelMm(m.plane);
+    if (m.type === "ruler") {
+      const mm = Math.hypot((m.p1[0] - m.p0[0]) * mx, (m.p1[1] - m.p0[1]) * my);
+      return { ...m, mm, label: `${mm.toFixed(1)} mm` };
+    }
+    const [w, h] = dimsFor(m.plane);
+    const cx = (m.p0[0] + m.p1[0]) / 2, cy = (m.p0[1] + m.p1[1]) / 2;
+    const rx = Math.abs(m.p1[0] - m.p0[0]) / 2, ry = Math.abs(m.p1[1] - m.p0[1]) / 2;
+    let n = 0, sum = 0, sumSq = 0, min = Infinity, max = -Infinity;
+    if (rx > 0 && ry > 0) {
+      // Pixels whose centres fall inside the ellipse.
+      for (let r = Math.max(0, Math.floor(cy - ry)); r <= Math.min(h - 1, Math.ceil(cy + ry)); r++) {
+        for (let c = Math.max(0, Math.floor(cx - rx)); c <= Math.min(w - 1, Math.ceil(cx + rx)); c++) {
+          const dx = (c + 0.5 - cx) / rx, dy = (r + 0.5 - cy) / ry;
+          if (dx * dx + dy * dy > 1) continue;
+          const v = state.crop[voxelIndex(m.plane, m.index, r, c)];
+          n++; sum += v; sumSq += v * v; min = Math.min(min, v); max = Math.max(max, v);
+        }
+      }
+    }
+    const mean = n ? sum / n : NaN;
+    const sd = n > 1 ? Math.sqrt(Math.max(0, (sumSq - n * mean * mean) / (n - 1))) : 0;
+    const area = Math.PI * rx * mx * ry * my; // mm²
+    return { ...m, n, mean, sd, min, max, area, label: n ? `${Math.round(mean)} ± ${Math.round(sd)} HU` : "no pixels" };
+  }
+
+  const formatArea = (mm2) => (mm2 >= 100 ? `${(mm2 / 100).toFixed(1)} cm²` : `${Math.round(mm2)} mm²`);
+
+  function drawOverlay() {
+    const svg = $("overlay");
+    if (!state.crop) { svg.innerHTML = ""; return; }
+    const [w, h] = planeDims(), k = state.index[state.plane];
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    const unit = w / Math.max(1, $("canvas").getBoundingClientRect().width); // image pixels per screen pixel
+    const items = state.measures.filter((m) => m.plane === state.plane && m.index === k);
+    if (state.drawing && state.drawing.plane === state.plane && state.drawing.index === k) {
+      items.push({ ...measure(state.drawing), preview: true });
+    }
+    const fs = 12 * unit, pad = 3 * unit;
+    // Labels are kept inside the image (monospace text is about 0.62 em per character).
+    const label = (x, y, text, anchor) => {
+      const width = text.length * 0.62 * fs;
+      const left = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+      x += Math.max(pad - left, Math.min(0, w - pad - (left + width)));
+      y = Math.min(h - pad, Math.max(fs + pad, y));
+      return `<text x="${x}" y="${y}" font-size="${fs}" stroke-width="${3 * unit}" text-anchor="${anchor}">${escapeHtml(text)}</text>`;
+    };
+    svg.innerHTML = items.map((m) => {
+      const cls = `m${m.preview ? " preview" : ""}`;
+      if (m.type === "ruler") {
+        const [[x0, y0], [x1, y1]] = [m.p0, m.p1];
+        const anchor = x1 > w * 0.65 ? "end" : "start", dx = (anchor === "end" ? -6 : 6) * unit;
+        return `<line class="${cls}" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` +
+          `<circle class="end" cx="${x0}" cy="${y0}" r="${2 * unit}"/><circle class="end" cx="${x1}" cy="${y1}" r="${2 * unit}"/>` +
+          label(x1 + dx, y1 - 6 * unit, m.label, anchor);
+      }
+      const cx = (m.p0[0] + m.p1[0]) / 2, cy = (m.p0[1] + m.p1[1]) / 2;
+      const rx = Math.abs(m.p1[0] - m.p0[0]) / 2, ry = Math.abs(m.p1[1] - m.p0[1]) / 2;
+      const below = cy + ry + 14 * unit < h;
+      return `<ellipse class="${cls}" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` +
+        label(cx, below ? cy + ry + 13 * unit : cy - ry - 5 * unit, m.label, "middle");
+    }).join("");
+  }
+
+  function renderMeasures() {
+    $("clearMeasures").hidden = !state.measures.length;
+    $("measureList").innerHTML = state.measures.map((m, i) => {
+      const where = `${m.plane} ${m.index + 1}`;
+      const what = m.type === "ruler"
+        ? `Ruler ${m.mm.toFixed(1)} mm`
+        : m.n
+          ? `ROI mean ${Math.round(m.mean)} HU, SD ${Math.round(m.sd)}, min ${m.min}, max ${m.max}, ${formatArea(m.area)} (${m.n} px)`
+          : "ROI with no pixels";
+      return `<li><span class="go" data-i="${i}" title="Go to this slice">${escapeHtml(what)} · ${where}</span>` +
+        `<button class="x" type="button" data-i="${i}" title="Delete" aria-label="Delete measurement">×</button></li>`;
+    }).join("");
+  }
+
+  function setTool(tool) {
+    state.tool = state.tool === tool ? null : tool;
+    setPressed("toolSeg", "tool", state.tool || "");
+    document.querySelector(".viewer").classList.toggle("measuring", !!state.tool);
+  }
+
+  function canvasPoint(e) {
+    const rect = $("canvas").getBoundingClientRect(), [w, h] = planeDims();
+    const x = ((e.clientX - rect.left) / rect.width) * w, y = ((e.clientY - rect.top) / rect.height) * h;
+    return [Math.min(w, Math.max(0, x)), Math.min(h, Math.max(0, y))];
   }
 
   function step(delta) {
@@ -845,12 +989,20 @@
     const b = e.target.closest("button");
     if (b) setWindow(b.dataset.w);
   };
-  // Keys 1-4 pick a display window and F expands the viewer, except while typing in a text field.
+  // Viewer keys, except while typing in a text field: 1-4 windows, F expand, R ruler, E oval ROI,
+  // Delete/Backspace removes the last measurement, Esc cancels a drawing, then leaves the expanded view.
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if (e.key === "Escape" && state.drawing) { state.drawing = null; drawOverlay(); return; }
     if (e.key === "Escape" && document.body.classList.contains("viewer-expanded")) { setExpanded(false); return; }
+    if (e.key === "Escape" && state.tool) { setTool(state.tool); return; }
     if (e.target.closest("textarea, select, [contenteditable], input:not([type=range]):not([type=checkbox])")) return;
     if ((e.key === "f" || e.key === "F") && state.crop) { e.preventDefault(); setExpanded(!document.body.classList.contains("viewer-expanded")); return; }
+    const key = e.key.toLowerCase();
+    if ((key === "r" || key === "e") && state.crop) { e.preventDefault(); setTool(key === "r" ? "ruler" : "roi"); return; }
+    if ((e.key === "Delete" || e.key === "Backspace") && state.measures.length) {
+      e.preventDefault(); state.measures.pop(); renderMeasures(); drawOverlay(); return;
+    }
     const b = $("windowSeg").querySelector(`button[data-key="${e.key}"]`);
     if (!b || !state.crop) return;
     e.preventDefault();
@@ -907,6 +1059,47 @@
 
   $("slice").oninput = (e) => { state.index[state.plane] = Number(e.target.value); render(); };
   $("canvas").addEventListener("wheel", (e) => { e.preventDefault(); step(e.deltaY > 0 ? -1 : 1); }, { passive: false });
+
+  // Drawing a ruler or ROI: press on the image, drag, release.
+  $("canvas").addEventListener("pointerdown", (e) => {
+    if (!state.tool || !state.crop || e.button !== 0) return;
+    e.preventDefault();
+    const p = canvasPoint(e);  // read before focusing: focus must not scroll the image under the pointer
+    $("canvas").focus({ preventScroll: true });
+    state.drawing = { type: state.tool, plane: state.plane, index: state.index[state.plane], p0: p, p1: p };
+    const move = (ev) => { if (state.drawing) { state.drawing.p1 = canvasPoint(ev); drawOverlay(); } };
+    const finish = (keep) => () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", done);
+      window.removeEventListener("pointercancel", cancel);
+      const m = state.drawing && measure(state.drawing);
+      state.drawing = null;
+      const dx = m ? Math.abs(m.p1[0] - m.p0[0]) : 0, dy = m ? Math.abs(m.p1[1] - m.p0[1]) : 0;
+      if (keep && m && (m.type === "ruler" ? Math.hypot(dx, dy) >= 1 : dx >= 1 && dy >= 1)) state.measures.push(m);
+      renderMeasures();
+      drawOverlay();
+    };
+    const done = finish(true), cancel = finish(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done);
+    window.addEventListener("pointercancel", cancel);
+  });
+  $("canvas").addEventListener("pointermove", (e) => { state.hoverPt = canvasPoint(e); updateInfo(); });
+  $("canvas").addEventListener("pointerleave", () => { state.hoverPt = null; updateInfo(); });
+  new ResizeObserver(() => drawOverlay()).observe($("canvas"));
+
+  $("toolSeg").onclick = (e) => { const b = e.target.closest("button"); if (b && state.crop) setTool(b.dataset.tool); };
+  $("clearMeasures").onclick = () => { state.measures = []; renderMeasures(); drawOverlay(); };
+  $("measureList").onclick = (e) => {
+    const i = Number(e.target.dataset.i);
+    if (Number.isNaN(i)) return;
+    if (e.target.classList.contains("x")) {
+      state.measures.splice(i, 1); renderMeasures(); drawOverlay(); return;
+    }
+    const m = state.measures[i];
+    state.plane = m.plane; state.index[m.plane] = m.index;
+    setPressed("planeSeg", "plane", m.plane); render();
+  };
   $("canvas").onkeydown = (e) => {
     const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }[e.key];
     if (d) { e.preventDefault(); step(d); }
